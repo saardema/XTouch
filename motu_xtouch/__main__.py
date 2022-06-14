@@ -1,11 +1,14 @@
 from threading import Thread
 import math
 import time
+import signal
+import sys
+
 import mido
+import mido.backends.rtmidi
 import applescript
 
-import motu
-import map
+from motu_xtouch import motu, map
 
 DEVICE_NAME = 'X-TOUCH COMPACT'
 
@@ -100,21 +103,8 @@ def periodic_update():
 
 # Thread(target=periodic_update).start()
 
-# Connect
-while not connected:
-    try:
-        outport = mido.open_output(DEVICE_NAME)
-        inport = mido.open_input(DEVICE_NAME)
-        connected = True
-        print('Connected to ' + DEVICE_NAME)
-        set_b_from_datastore()
-    except OSError as e:
-        print(e)
-        time.sleep(1)
-
-for msg in inport:
-    # print(msg)
-
+def handle_message(msg):
+    global current_layer
     # CC
     if msg.type == 'control_change':
         
@@ -201,3 +191,30 @@ for msg in inport:
             set_mutes()
         elif msg.note in map.RECORD_ARM_NOTE:
             set_record_arms()
+
+def main():
+    
+    def signal_term_handler(signal, frame):
+        print('got SIGTERM')
+        sys.exit(0)
+    
+    signal.signal(signal.SIGTERM, signal_term_handler)
+    global outport, inport, connected
+    while not connected:
+        try:
+            outport = mido.open_output(DEVICE_NAME)
+            inport = mido.open_input(DEVICE_NAME)
+            connected = True
+            print('Connected to ' + DEVICE_NAME)
+            set_b_from_datastore()
+        except OSError as e:
+            print(e)
+            time.sleep(1)
+
+    for msg in inport:
+        # print(msg)
+
+        handle_message(msg)
+
+if __name__ == '__main__':
+    main()
