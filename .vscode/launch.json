@@ -1,0 +1,10 @@
+{
+	"configurations": [
+		{
+			"name": "Python Debugger: Module",
+			"type": "debugpy",
+			"request": "launch",
+			"program": "motu_xtouch"
+		}
+	]
+}

@@ -1,1 +1,1 @@
-/usr/bin/env python3 motu_xtouch/__main__.py
+/usr/bin/env python motu_xtouch/__main__.py
