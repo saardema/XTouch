@@ -1,0 +1,10 @@
+[faders]
+0 = { name = "TR-8S Kick" }
+1 = { name = "TR-8S" }
+2 = { name = "Digitakt" }
+3 = { name = "Sub-37" }
+4 = { name = "Model D" }
+5 = { name = "MS-20" }
+6 = { name = "Minilogue XD" }
+7 = { name = "Mac" }
+8 = { type = "Master" }

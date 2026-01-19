@@ -1,23 +1,16 @@
-from threading import Thread
-import math
 import time
 import signal
 import sys
 import asyncio
 
-import mido
 
 import applescript.tell
+from mido import Message
 
-import mapping
+from mapping import ControlType, get_path, get_type, load_cfg
 from motu_client import MotuClient
-
-DEVICE_NAME = 'X-TOUCH COMPACT'
-CLIENT_ID = "0001f2fffe00be6a"
-
-current_layer = 'A'
-connected = False
-motu = MotuClient(CLIENT_ID)
+from xtouch_client import EncoderMode, XTouchClient
+from motu_xtouch import float_to_midi, midi_to_float
 
 # TODO
 # Periodically get M state efficiently (Long-polling with ETag)
@@ -33,201 +26,134 @@ motu = MotuClient(CLIENT_ID)
 # Monitoring with headphones
 
 
-def set_b_from_datastore():
-    set_faders()
-    set_rotary_encoders()
-    set_rotary_display()
-    set_mutes()
-    set_record_arms()
+def init_from_datastore():
+    init_faders()
+    init_rotary_display()
+    init_rotary_encoders()
+    init_mutes()
+    init_record_arms()
 
 
-def set_faders():
-    # Set faders 1-8
-    for (cc, path) in mapping.FADER_CC.items():
-        value = float_to_midi(motu.store[path])
-        outport.send(mido.Message('control_change', control=cc, value=value))
+def get_value(ctrl_type: ControlType, x: int, y: int = 0):
+    path = get_path(ctrl_type, x, y)
+
+    return motu.store.get(path)
 
 
-def set_rotary_encoders():
-    # Set rotary encoders 1-8
-    for (cc, path) in mapping.ROTARY_CC.items():
-        value = float_to_midi(motu.store[path])
-        outport.send(mido.Message('control_change', control=cc, value=value))
-
-    # Set rotary encoders 9-16
-    for (cc, path) in mapping.SIDE_ROTARY_CC.items():
-        value = float_to_midi(motu.store[path])
-        outport.send(mido.Message('control_change', control=cc, value=value))
+def init_faders():
+    for i in range(9):
+        path = get_path(ControlType.Fader, i)
+        if path:
+            value = float_to_midi(motu.store[path])
+            xtouch.set_fader(i, value)
 
 
-def set_rotary_display():
-    # Display everything as off
-    for cc in range(10, 25):
-        outport.send(mido.Message('control_change', control=cc, value=0, channel=1))
+def init_rotary_encoders():
+    for i in range(8):
+        path = get_path(ControlType.Rotary, i)
+        if path:
+            value = float_to_midi(motu.store[path])
+            xtouch.set_rotary(i, value)
 
-    # Display top rotary knob LEDs as fan because they're sends
-    for (cc, path) in mapping.ROTARY_CC.items():
-        outport.send(mido.Message('control_change', control=cc, value=2, channel=1))
-
-    for (cc, path) in mapping.SIDE_ROTARY_CC.items():
-        outport.send(mido.Message('control_change', control=cc, value=2, channel=1))
-
-
-def set_mutes():
-    for (note, path) in mapping.MUTE_NOTE.items():
-        value = motu.store[path]
-        velocity = 0
-        if value == 1:
-            velocity = 127
-        outport.send(mido.Message('note_on', note=note, velocity=velocity))
+    for i in range(8):
+        path = get_path(ControlType.Rotary, i, 1)
+        if path:
+            value = float_to_midi(motu.store[path])
+            xtouch.set_rotary(i, value, 1)
 
 
-def set_record_arms():
-    for (note, path) in mapping.RECORD_ARM_NOTE.items():
-        value = motu.store[path]
-        velocity = 0
-        if value == 1:
-            velocity = 127
-        outport.send(mido.Message('note_on', note=note, velocity=velocity))
+def init_rotary_display():
+    for cc in range(8):
+        xtouch.set_rotary_mode(cc, EncoderMode.Fan)
+        xtouch.set_rotary_mode(cc, EncoderMode.Fan, 1)
 
 
-def midi_to_float(value: int, db=True):
-    if db:
-        gain = value / 100
-        exp = -8 + gain * 8
-        f = 2 ** exp
-        f -= 2 ** -8
-    else:
-        f = value / 127
-
-    return min(max(f, 0), 4)
+def init_mutes():
+    for i in range(8):
+        path = get_path(ControlType.Button, i, 3)
+        if path:
+            value = float(motu.store[path])
+            xtouch.set_button(i, 3, value == 1)
 
 
-def float_to_midi(value, db=True):
-    if value <= 0:
-        return 0
-
-    if db:
-        value += 2 ** -8
-        exp = math.log2(value)
-        gain = 1 - exp / -8
-        value = gain * 100
-    else:
-        value *= 127
-
-    value = int(min(max(value, 0), 127))
-
-    return value
+def init_record_arms():
+    for i in range(8):
+        path = get_path(ControlType.Button, i, 2)
+        if path:
+            value = float(motu.store[path])
+            xtouch.set_button(i, 2, value == 1)
 
 
-def handle_message(msg):
-    global current_layer
-    # CC
-    if msg.type == 'control_change':
+def handle_message(msg: Message):
+    ctrl_type, x, y = get_type(msg)
+    path = get_path(ctrl_type, x, y)
 
-        # Faders
-        if msg.control in mapping.FADER_CC:
-            value = midi_to_float(msg.value, True)
-            path = mapping.FADER_CC[msg.control]
-            motu.write(path, value)
+    # A/B Layer switch
+    if ctrl_type & ControlType.CC and msg.control in (26, 63):
+        if msg.control == 26 and msg.value == 2 or msg.control == 63 and msg.value == 3:
+            # init_from_datastore()
+            init_rotary_display()
+        return
 
-        # Top rotary knobs
-        elif msg.control in mapping.ROTARY_CC:
-            value = midi_to_float(msg.value)
-            path = mapping.ROTARY_CC[msg.control]
-            motu.write(path, value)
+    # Update state
+    elif ctrl_type & ControlType.Press and msg.note == 48:
+        motu.update_mix_state()
+        init_from_datastore()
 
-        # Side rotary knobs
-        elif msg.control in mapping.SIDE_ROTARY_CC:
-            value = midi_to_float(msg.value)
-            path = mapping.SIDE_ROTARY_CC[msg.control]
-            motu.write(path, value)
+    if not path:
+        return
 
-        # Layer switch to A
-        elif msg.control == 26 and current_layer != 'A':
-            current_layer = 'A'
-            set_b_from_datastore()
+    if ctrl_type & ControlType.CC:
+        motu.write(path, midi_to_float(msg.value))
 
-        # Layer switch to B
-        elif msg.control == 63 and current_layer != 'B':
-            current_layer = 'B'
-            set_b_from_datastore()
+    elif ctrl_type & ControlType.Press:
 
-    # Notes
-    elif msg.type == 'note_on':
+        # Sends and Aux toggle
+        if ctrl_type & ControlType.Rotary:
+            motu.write(path, 1 if motu.store[path] == 0 else 0)
+            value = float_to_midi(motu.store[path])
+            xtouch.set_rotary(x, value, y)
 
-        # Sends toggle
-        if msg.note in mapping.ROTARY_NOTE:
-            path = mapping.ROTARY_NOTE[msg.note]
-            value = 1 if motu.store[path] == 0 else 0
-            motu.write(path, value)
-            set_rotary_encoders()
+        # Mutes and Record arm toggle
+        elif ctrl_type & ControlType.Button:
+            motu.write(path, 1 if motu.store[path] == 0 else 0)
 
-        # Aux toggle
-        elif msg.note in mapping.SIDE_ROTARY_NOTE:
-            path = mapping.SIDE_ROTARY_NOTE[msg.note]
-            value = 1 if motu.store[path] == 0 else 0
-            motu.write(path, value)
-            set_rotary_encoders()
+        # Transport buttons mapped to Music app
+        elif ctrl_type & ControlType.Transport:
+            cmd = [
+                'back track', 'next track',
+                '', '',
+                'pause and rewind', 'play'
+            ][x]
 
-        # Mutes toggle
-        elif msg.note in mapping.MUTE_NOTE:
-            path = mapping.MUTE_NOTE[msg.note]
-            value = 1 - motu.store[path]
-            motu.write(path, value)
+            if cmd:
+                applescript.tell.app("Music", cmd)
 
-        elif msg.note in mapping.RECORD_ARM_NOTE:
-            path = mapping.RECORD_ARM_NOTE[msg.note]
-            value = 1 - motu.store[path]
-            motu.write(path, value)
-
-        # Update state
-        elif msg.note == 48:
-            motu.fetch_datastore()
-            set_b_from_datastore()
-
-        elif msg.note == 49:
-            applescript.tell.app("Music", 'back track')
-
-        elif msg.note == 50:
-            applescript.tell.app("Music", 'next track')
-
-        elif msg.note == 53:
-            applescript.tell.app("Music", 'pause and rewind')
-
-        elif msg.note == 54:
-            applescript.tell.app("Music", 'play')
-
-    # Update button after lifting
-    elif msg.type == 'note_off':
-        if msg.note in mapping.MUTE_NOTE:
-            set_mutes()
-        elif msg.note in mapping.RECORD_ARM_NOTE:
-            set_record_arms()
+    # Releasing a button turns it off,
+    # so turn it on after releasing if it's supposed to stay on
+    elif ctrl_type & ControlType.Button and motu.store[path] == 1:
+        xtouch.set_button(x, y, True)
 
 
-def signal_term_handler(signal, frame):
-    print('got SIGTERM')
-    sys.exit(0)
+state = {'current_layer': 'A'}
+xtouch = XTouchClient(handle_message)
+motu = MotuClient()
 
 
 def main():
-    signal.signal(signal.SIGTERM, signal_term_handler)
+    try:
+        while not xtouch.ready or not motu.ready:
+            if not xtouch.ready:
+                xtouch.connect()
+            time.sleep(0.5)
 
-    global outport, inport, connected
-    while not connected:
-        try:
-            outport = mido.open_output(DEVICE_NAME)
-            inport = mido.open_input(DEVICE_NAME, callback=handle_message)
-            connected = True
-            print('Connected to ' + DEVICE_NAME)
-        except OSError as e:
-            print(e)
-            time.sleep(1)
+        load_cfg("mapping.toml", motu.mix_map)
+        init_from_datastore()
+        loop = asyncio.new_event_loop()
+        loop.run_forever()
 
-    set_b_from_datastore()
-    loop = asyncio.new_event_loop()
-    loop.run_forever()
+    except KeyboardInterrupt:
+        sys.exit()
 
 
 if __name__ == '__main__':
