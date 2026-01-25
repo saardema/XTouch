@@ -10,15 +10,12 @@ def get_output_names() -> list[str]: ...
 
 class Message:
     def __init__(self, type: str, *args, **kwargs) -> None: ...
+    def is_cc(self, control=None) -> bool: ...
 
     type: str
     channel: int
     note: int
     velocity: int
-
-    # msg.type: control_change
     control: int
     value: int
-
-    # msg.type: pitchwheel
     pitch: int

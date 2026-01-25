@@ -46,12 +46,14 @@ class ChannelType(Enum):
 class ControlType(Flag):
     Invalid = 0
     Fader = auto()
-    Rotary = auto()
+    Encoder = auto()
     Button = auto()
     Press = auto()
     Release = auto()
     CC = auto()
     Transport = auto()
+    Master = auto()
+    Side = auto()
 
     def __repr__(self) -> str:
         return self.name or self.__name__
@@ -66,7 +68,7 @@ class MixerChannel:
     bank_idx: int = -1
     bank_ch_idx: int = -1
     mix_in_idx: int = -1
-    x_touch_idx: int = -1
+    type: ChannelType = ChannelType.Input
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}({self.base_name} [{self.mix_in_idx}, {self.bank_idx}, {self.bank_ch_idx}])"
@@ -77,6 +79,7 @@ class MixerChannel:
         if self.name.endswith(" L"):
             self.base_name = self.name.removesuffix(" L")
             self.is_stereo = True
+
         elif self.name.endswith(" R"):
             self.base_name = self.name.removesuffix(" R")
             self.is_stereo = True

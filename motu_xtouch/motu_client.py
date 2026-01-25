@@ -30,9 +30,10 @@ class MotuClient:
         self.last_request_time = 0.0
         self.push_scheduled = False
         self.ready = False
-        self.channel_banks: dict[int, InputBank] = {}
-        self.channels: dict[int, MixerChannel] = {}
-        self.mix_map: dict[str, MixerChannel] = {}
+        self.input_banks: dict[int, InputBank] = {}
+        self.inputs: dict[str, MixerChannel] = {}
+        self.groups: dict[str, MixerChannel] = {}
+        self.auxs: dict[str, MixerChannel] = {}
 
         self.loop = asyncio.new_event_loop()
         self.thread = threading.Thread(target=self._run_event_loop, daemon=False)
@@ -42,8 +43,9 @@ class MotuClient:
     def boot(self):
         self.thread.start()
         self.update_mix_state()
-        self.channel_banks = self._parse_input_banks()
-        self.mix_map = self._parse_routing()
+        self.input_banks = self._parse_input_banks()
+        self.inputs = self._parse_routing()
+        self.groups = self._parse_groups()
 
         self.ready = True
 
@@ -86,8 +88,8 @@ class MotuClient:
 
     def _commit_patch(self):
         """
-        Write the new value in Motu datastore,
-        Reset the scheduled changes
+        Write the new value in Motu datastore
+        and reset the scheduled changes.
         """
 
         print(self.patch)
@@ -102,7 +104,12 @@ class MotuClient:
         return requests.get(f"{self.api_url}/{sub_path}").json()
 
     def _parse_routing(self):
-        mix_map: dict[str, MixerChannel] = {}
+        """
+        Parse the patchbay matrix to define
+        which inputs go to which mixer channel
+        """
+
+        inputs: dict[str, MixerChannel] = {}
 
         for path, value in self._fetch_path("ext/obank/6").items():
             if not isinstance(value, str) or value == "":
@@ -113,14 +120,23 @@ class MotuClient:
                 case ["ch", ch, "src"]:
                     mix_in_ch = int(ch)
                     bank_idx, bank_ch = (int(d) for d in value.split(":"))
-                    chan = self.channel_banks[bank_idx].channels[bank_ch]
+                    chan = self.input_banks[bank_idx].channels[bank_ch]
                     if not chan.is_right_channel:
                         chan.mix_in_idx = mix_in_ch
-                        mix_map[chan.base_name] = chan
+                        inputs[chan.base_name] = chan
 
-        mix_map = dict(sorted(mix_map.items(), key=lambda ch: ch[1].mix_in_idx))
+        inputs = dict(sorted(inputs.items(), key=lambda ch: ch[1].mix_in_idx))
 
-        return mix_map
+        return inputs
+
+    def _parse_groups(self):
+        groups: dict[str, MixerChannel] = {}
+
+        for bank in self.input_banks.values():
+            if bank.name == 'Mix Group':
+                groups = {c.base_name: c for c in bank.channels.values() if not c.is_right_channel}
+
+        return groups
 
     def _parse_input_banks(self):
         channel_banks: dict[int, InputBank] = {}
@@ -135,22 +151,30 @@ class MotuClient:
             bank = channel_banks[bank_idx]
 
             match nodes:
-                case ["name"]: bank.name = value
+                case ["name"]:
+                    bank.name = value
+                    if bank.name == "Mix Group":
+                        bank.channel_type = ChannelType.Group
+                    if bank.name == "Mix Aux":
+                        bank.channel_type = ChannelType.Aux
+
                 case ["userCh"]: bank.n_channels = value
                 case ["ch", ch, "name" | "defaultName" as prop]:
                     if not isinstance(value, str):
                         continue
 
-                    if prop == "defaultName" and value in bank.channels:
-                        continue
-
                     bank_ch_idx = int(ch)
-                    chan = MixerChannel(value, bank_idx=bank_idx, bank_ch_idx=bank_ch_idx)
+
+                    if bank_ch_idx in bank.channels:
+                        if prop == "defaultName":
+                            continue
+
+                    chan = MixerChannel(value, bank_idx=bank_idx, bank_ch_idx=bank_ch_idx, type=bank.channel_type)
                     bank.channels[bank_ch_idx] = chan
 
         channel_banks = dict(sorted(channel_banks.items()))
 
-        for bank in self.channel_banks.values():
+        for bank in self.input_banks.values():
             bank.channels = dict(sorted(bank.channels.items()))
 
         return channel_banks

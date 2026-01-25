@@ -1,5 +1,7 @@
-from enum import Enum, auto
+from enum import Enum
 import mido
+
+from motu_xtouch.mapping import BUTTONS, ENCODERS_CC
 
 
 DEVICE_NAME = 'X-TOUCH COMPACT'
@@ -28,21 +30,26 @@ class XTouchClient:
         except OSError as e:
             print(e)
 
-    def set_fader(self, i: int, value):
-        self.set_cc(i + 1, value)
-
-    def set_rotary(self, i: int, value, y: int = 0):
-        self.set_cc(i + 10 + y * 8, value)
-
-    def set_rotary_mode(self, i, mode: EncoderMode, y: int = 0):
-        self.set_cc(i + 10 + y * 8, mode.value, 1)
-
-    def set_cc(self, cc: int, value: int, channel=0):
+    def _set_cc(self, cc: int, value: int, channel=0):
         msg = mido.Message('control_change', control=cc, value=value, channel=channel)
         self.outport.send(msg)
 
-    def set_button(self, x: int, y: int = 0, on=True, blink=False):
-        velocity = 2 if blink else 1 if on else 0
-        note = x + (y + 2) * 8
-        msg = mido.Message('note_on', note=note, velocity=velocity)
-        self.outport.send(msg)
+    def _set_encoder(self, x: int, value: int, y: int = 0, ch: int = 0):
+        if (cc := ENCODERS_CC.find(x % 8, y, x // 8)) is not None:
+            self._set_cc(cc, value, ch)
+
+    def set_fader(self, i: int, value):
+        self._set_cc(i + 1, value)
+
+    def set_encoder(self, x: int, value: int, y: int = 0):
+        self._set_encoder(x, value, y)
+
+    def set_encoder_mode(self, x, y: int = 0, mode: EncoderMode = EncoderMode.Fan):
+        self._set_encoder(x, mode.value, y, 1)
+
+    def set_button(self, x: int, y: int, mode: int):
+        # Mode 0: off, 1: on, 2: blinking
+        note = BUTTONS.find(x % 8, y, x // 8)
+        if note is not None:
+            msg = mido.Message('note_on', note=note, velocity=mode)
+            self.outport.send(msg)

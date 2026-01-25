@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from typing import Any
 from mido import Message
 import tomllib
 
@@ -7,8 +6,8 @@ from motu_xtouch import ControlType, ChannelType, MixerChannel
 
 
 @dataclass
-class FaderMap:
-    mix_in_idx: int = 0
+class ChannelState:
+    index: int = 0
     type: ChannelType = ChannelType.Input
 
     def get_path(self, control="fader"):
@@ -24,7 +23,7 @@ class FaderMap:
         elif self.type is ChannelType.Group:
             root = "group"
 
-        return f"{root}/{self.mix_in_idx}/matrix/{control}"
+        return f"{root}/{self.index}/matrix/{control}"
 
 
 @dataclass
@@ -32,19 +31,47 @@ class MapRange:
     start: int
     length: int = 8
 
+    def __post_init__(self):
+        self._range = range(self.start, self.start + self.length)
+
+    def contains(self, n: int):
+        return n in self._range
+
 
 @dataclass
 class MapRanges:
     a_ranges: list[MapRange]
     b_ranges: list[MapRange]
 
+    def contains(self, n: int):
+        return bool(self.locate(n))
 
-fader_map: dict[int, FaderMap] = {}
-AUX = [6, 8]
+    def find(self, x: int = 0, y: int = 0, layer: int = 0):
+        ranges = self.a_ranges if layer == 0 else self.b_ranges
+        if y < len(ranges) and x < ranges[y].length:
+            return ranges[y].start + x
+
+        return None
+
+    def locate(self, n: int) -> tuple[int, int, int] | None:
+        for layer, layer_ranges in enumerate([self.a_ranges, self.b_ranges]):
+            for y, rng in enumerate(layer_ranges):
+                if rng.contains(n):
+                    return n - rng.start, y, layer
+
+        return None
+
+
+DEFAULT_SEND_PATH = "main/0/send"
+AUX_MIXES = [6, 8, 10, 12]
+GROUPS = [0, 2]
+fader_mapping: dict[int, ChannelState] = {}
+master_fader_map = ChannelState(0, ChannelType.Master)
+map_state = {'selected_send_path': DEFAULT_SEND_PATH}
 
 
 SIDE_ROTARY_MAP = {
-    2: 'aux/5/matrix/fader',      # FX send
+    # 2: 'chan/32/matrix/fader',    # FX return
     3: 'monitor/0/matrix/fader',  # Headphones
     4: 'aux/6/matrix/fader',      # Record
     5: 'aux/2/matrix/fader',      # JBL
@@ -53,15 +80,16 @@ SIDE_ROTARY_MAP = {
 }
 
 
-FADERS = MapRanges(
+CHANNEL_FADERS = MapRanges(
     [MapRange(1)],
     [MapRange(28)])
 
 MASTER_FADER = MapRanges(
     [MapRange(9, 1)],
-    [MapRange(36, 1)])
+    # [MapRange(36, 1)])
+    [MapRange(9, 1)])
 
-MASTER_BUTTON = MapRanges(
+MASTER_BUTTON_NOTE = MapRanges(
     [MapRange(48, 1)],
     [MapRange(103, 1)])
 
@@ -69,7 +97,11 @@ TRANSPORT_BUTTONS = MapRanges(
     [MapRange(49, 6)],
     [MapRange(104, 6)])
 
-ENCODERS = MapRanges(
+ENCODERS_NOTE = MapRanges(
+    [MapRange(0), MapRange(8)],
+    [MapRange(55), MapRange(63)])
+
+ENCODERS_CC = MapRanges(
     [MapRange(10), MapRange(18)],
     [MapRange(37), MapRange(45)])
 
@@ -78,113 +110,103 @@ BUTTONS = MapRanges(
     [MapRange(71), MapRange(79), MapRange(87), MapRange(95)])
 
 
-def get_type(msg: Message) -> tuple[ControlType, int, int]:
-    control_type = ControlType.Invalid
-    is_cc = msg.type == 'control_change'
-    ctrl_nr = msg.control if is_cc else msg.note
-    x, y = 0, 0
+def parse_message(msg: Message) -> tuple[ControlType, int, int, int]:
 
-    if is_cc:
-        if is_fader(msg.control):
+    control_type = ControlType.Invalid
+    x, y, layer = 0, 0, 0
+    if msg.type not in ['note_on', 'note_off', 'control_change']:
+        return control_type, x, y, layer
+
+    n = msg.control if msg.is_cc() else msg.note
+
+    if msg.is_cc():
+        control_type |= ControlType.CC
+
+        if (ctrl := MASTER_FADER.locate(msg.control)):
+            control_type |= ControlType.Fader | ControlType.Master
+
+        elif (ctrl := CHANNEL_FADERS.locate(msg.control)):
             control_type |= ControlType.Fader
-            x = msg.control - 1
+
+        elif ctrl := ENCODERS_CC.locate(n):
+            control_type |= ControlType.Encoder
+
     else:
-        if is_button(msg.note):
+        if (ctrl := BUTTONS.locate(n)):
             control_type |= ControlType.Button
 
-            btn_nr = msg.note - 16
-            x = btn_nr % 8
-            y = btn_nr // 8
-
-        if is_transport(msg.note):
+        elif ctrl := TRANSPORT_BUTTONS.locate(n):
             control_type |= ControlType.Transport
-            x = msg.note - 49
+
+        elif ctrl := ENCODERS_NOTE.locate(n):
+            control_type |= ControlType.Encoder
 
         if msg.type == 'note_on':
             control_type |= ControlType.Press
         elif msg.type == 'note_off':
             control_type |= ControlType.Release
 
-    if is_top_rotary(ctrl_nr, is_cc):
-        control_type |= ControlType.Rotary
-        x = msg.control - 10 if is_cc else msg.note
+    if ctrl:
+        x, y, layer = ctrl
+        if control_type & (ControlType.Fader | ControlType.Button | ControlType.Encoder):
+            x += layer * 8
+        elif control_type & ControlType.Encoder:
+            y = 1 if control_type & ControlType.Side else 0
 
-    if is_side_rotary(ctrl_nr, is_cc):
-        control_type |= ControlType.Rotary
-        x = msg.control - 18 if is_cc else msg.note - 8
-        y = 1
-
-    if is_cc:
-        control_type |= ControlType.CC
-
-    return control_type, x, y
-
-
-def is_transport(note: int):
-    return 49 <= note <= 54
-
-
-def is_fader(cc: int):
-    return 1 <= cc <= 9
-
-
-def is_side_rotary(n, is_cc=True):
-    if is_cc:
-        return 18 <= n <= 25
-
-    return 8 <= n <= 15
-
-
-def is_top_rotary(n, is_cc=True):
-    if is_cc:
-        return 10 <= n <= 17
-
-    return 0 <= n <= 7
-
-
-def is_button(note):
-    return 16 <= note <= 48
-
-
-def get_cc(i: int, is_fader=True):
-    if is_fader:
-        return i + 1
-    return i + 10
+    return control_type, x, y, layer
 
 
 def get_fader_path(x: int):
-    if x in fader_map:
-        return fader_map[x].get_path()
+    if x in fader_mapping:
+        return fader_mapping[x].get_path()
 
     return ""
 
 
-def get_rotary_path(x: int, y: int = 0):
+def get_selected_send_path(selected: int):
+    # Map top 8 buttons to select Aux, Group or Main send mode
+    # A1 A2 ... G1 G2 MAIN
+    if selected in range(len(AUX_MIXES)):
+        return f"aux/{AUX_MIXES[selected]}/send"
+
+    group_idx = selected - 8 + len(GROUPS)
+    if group_idx in range(len(GROUPS)):
+        return f"group/{GROUPS[group_idx]}/send"
+
+    return DEFAULT_SEND_PATH
+
+
+def get_encoder_path(x: int, y: int = 0):
     if y == 1:
         return SIDE_ROTARY_MAP.get(x, "")
 
-    if x in fader_map:
-        return fader_map[x].get_path(f"aux/{AUX[0]}/send")
+    if x in fader_mapping and map_state["selected_send_path"]:
+        fader = fader_mapping[x]
+        return fader.get_path(map_state["selected_send_path"])
 
     return ""
 
 
 def get_button_path(x: int, y: int = 0):
-    if y == 3:
-        return fader_map[x].get_path("mute")
+    if x in fader_mapping:
+        if y == 3:
+            return fader_mapping[x].get_path("mute")
 
-    if y < len(AUX):
-        return fader_map[x].get_path(f"aux/{AUX[y]}/send")
+        # if y < len(AUX_MIXES):
+        #     return fader_mapping[x].get_path(f"aux/{AUX_MIXES[y]}/send")
 
     return ""
 
 
-def get_path(ctrl_type: ControlType, x: int, y: int = 0):
+def get_path(ctrl_type: ControlType, x: int = 0, y: int = 0):
     if ctrl_type & ControlType.Fader:
+        if ctrl_type & ControlType.Master:
+            return master_fader_map.get_path()
+
         return get_fader_path(x)
 
-    if ctrl_type & ControlType.Rotary:
-        return get_rotary_path(x, y)
+    if ctrl_type & ControlType.Encoder:
+        return get_encoder_path(x, y)
 
     if ctrl_type & ControlType.Button:
         return get_button_path(x, y)
@@ -192,16 +214,30 @@ def get_path(ctrl_type: ControlType, x: int, y: int = 0):
     return ""
 
 
-def load_cfg(cfg_file_path: str, mix_map: dict[str, MixerChannel] = {}):
+def load_cfg(
+        cfg_file_path: str,
+        inputs: dict[str, MixerChannel],
+        groups: dict[str, MixerChannel],
+        auxs: dict[str, MixerChannel]):
+
     with open(cfg_file_path, "rb") as file:
         mapping_cfg = tomllib.load(file)
+        faders: dict[str, dict] = mapping_cfg["faders"]
 
-    for idx, fader in mapping_cfg["faders"].items():
-        fm = FaderMap(type=ChannelType.Input)
-        fader_map[int(idx)] = fm
+    for idx, fader in faders.items():
+        chan_name, chan_type = fader.get("name"), fader.get('type')
+        fader_map = ChannelState()
 
-        if fader.get('type') == "Master":
-            fm.type = ChannelType.Master
+        if chan_type:
+            fader_map.type = ChannelType[chan_type]
 
-        elif (name := fader.get("name")) and (chan := mix_map.get(name)):
-            fm.mix_in_idx = chan.mix_in_idx
+        if chan_name in groups:
+            fader_map.index = groups[chan_name].bank_ch_idx
+
+        elif chan_name in auxs:
+            fader_map.index = auxs[chan_name].bank_ch_idx
+
+        elif chan_name in inputs:
+            fader_map.index = inputs[chan_name].mix_in_idx
+
+        fader_mapping[int(idx)] = fader_map

@@ -1,10 +1,15 @@
 [faders]
+# Layer A
 0 = { name = "TR-8S Kick" }
 1 = { name = "TR-8S" }
-2 = { name = "Digitakt" }
-3 = { name = "Sub-37" }
-4 = { name = "Model D" }
-5 = { name = "MS-20" }
-6 = { name = "Minilogue XD" }
+2 = { name = "Sub-37" }
+3 = { name = "Labyrinth" }
+4 = { name = "Minilogue XD" }
+5 = { name = "Digitakt" }
+6 = { name = "FX Return" }
 7 = { name = "Mac" }
-8 = { type = "Master" }
+
+# Layer B
+8 = { name = "Model D" }
+9 = { name = "MS-20" }
+15 = { name = "Analog Inputs", type = "Group" }
