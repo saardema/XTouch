@@ -1,0 +1,108 @@
+from collections.abc import Callable
+import threading
+import requests
+import time
+import json
+import asyncio
+
+from core.mixer import TParam
+
+
+DEVICE_ID = "0001f2fffe00be6a"
+
+
+class MotuHttpClient:
+    def __init__(self, long_poll_callback: Callable[[dict], None], request_rate=0.025) -> None:
+        self.api_url = f'http://localhost:1280/{DEVICE_ID}/datastore'
+        self.request_rate = request_rate
+        self.long_poll_callback = long_poll_callback
+        self.patch: dict[str, TParam] = {}
+        self.last_request_time = 0.0
+        self.push_scheduled = False
+        self.req_loop = asyncio.new_event_loop()
+        # self.lp_thread = threading.Thread(target=self._run_req_event_loop)
+        self.req_thread = threading.Thread(target=self._run_req_event_loop)
+        self.req_thread.start()
+        self.etag = 0
+
+        # self.start_long_poll("mix")
+
+    def fetch_path(self, sub_path: str) -> dict[str, TParam]:
+        return requests.get(f"{self.api_url}/{sub_path}").json()
+
+    def push_change(self, path: str, value: TParam):
+        """
+        Schedule mutation of a Motu datastore value.
+        Requests are rate limited with eventual consistency.
+        """
+        self.patch[path] = value
+
+        if not self.push_scheduled:
+            self.push_scheduled = True
+            asyncio.run_coroutine_threadsafe(self._schedule_patch(), self.req_loop)
+            # asyncio.create_task(self._schedule_patch())
+
+    def _run_req_event_loop(self):
+        """ Run the event loop in a background thread """
+
+        asyncio.set_event_loop(self.req_loop)
+        self.req_loop.run_forever()
+
+    async def _schedule_patch(self):
+        """
+        Commit new value immediately or in the near future
+        depending on the last request time
+        """
+        # print("sched")
+
+        elapsed = time.time() - self.last_request_time
+        delay = max(0, self.request_rate - elapsed)
+
+        if delay > 0:
+            await asyncio.sleep(delay)
+
+        self.last_request_time = time.time()
+        self.push_scheduled = False
+        self._patch_request("mix", self.patch)
+        self.patch = {}
+
+    def _patch_request(self, path: str, data: dict):
+        """
+        Modify values in Motu datastore
+
+        :param path: path from the datastore to the root node of data
+        :param data: a flat dict where keys are paths
+        """
+        # print("patch")
+        path = f"{self.api_url}/{path}"
+        body = {'json': json.dumps(data)}
+
+        requests.patch(path, body)
+
+    def start_long_poll(self, path: str):
+        asyncio.run_coroutine_threadsafe(self.long_poll(path), self.req_loop)
+
+    async def long_poll(self, path: str):
+        while True:
+            resp = requests.get(
+                f"{self.api_url}/{path}",
+                headers={"If-None-Match": str(self.etag)}
+            )
+
+            if resp.status_code == 200:
+                if self.etag == 0:
+                    print("Long poll: Skipped initial")
+                    self.etag = resp.headers["etag"]
+                    continue
+
+                self.etag = resp.headers["etag"]
+
+                data = resp.json()
+                if len(data) < 10:
+                    print("Long poll: Update callback")
+                    self.long_poll_callback(data)
+                else:
+                    print("Long poll: Update too large")
+
+            elif resp.status_code == 304:
+                print("Long poll: Not modified")

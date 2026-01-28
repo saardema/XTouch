@@ -4,7 +4,7 @@
 			"name": "Python Debugger: Module",
 			"type": "debugpy",
 			"request": "launch",
-			"program": "motu_xtouch",
+			"program": "motu_xtouch/app.py",
 			"autoReload": {
 				"enable": true
 			}
