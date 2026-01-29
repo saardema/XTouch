@@ -1,5 +1,6 @@
 from collections.abc import Callable
 import threading
+from typing import Any
 import requests
 import time
 import json
@@ -20,12 +21,9 @@ class MotuHttpClient:
         self.last_request_time = 0.0
         self.push_scheduled = False
         self.req_loop = asyncio.new_event_loop()
-        # self.lp_thread = threading.Thread(target=self._run_req_event_loop)
         self.req_thread = threading.Thread(target=self._run_req_event_loop)
         self.req_thread.start()
         self.etag = 0
-
-        # self.start_long_poll("mix")
 
     def fetch_path(self, sub_path: str) -> dict[str, TParam]:
         return requests.get(f"{self.api_url}/{sub_path}").json()
@@ -40,7 +38,6 @@ class MotuHttpClient:
         if not self.push_scheduled:
             self.push_scheduled = True
             asyncio.run_coroutine_threadsafe(self._schedule_patch(), self.req_loop)
-            # asyncio.create_task(self._schedule_patch())
 
     def _run_req_event_loop(self):
         """ Run the event loop in a background thread """
@@ -53,7 +50,6 @@ class MotuHttpClient:
         Commit new value immediately or in the near future
         depending on the last request time
         """
-        # print("sched")
 
         elapsed = time.time() - self.last_request_time
         delay = max(0, self.request_rate - elapsed)
@@ -63,21 +59,27 @@ class MotuHttpClient:
 
         self.last_request_time = time.time()
         self.push_scheduled = False
-        self._patch_request("mix", self.patch)
+        data = self.patch.copy()
         self.patch = {}
+        self._patch_request("mix", data)
 
-    def _patch_request(self, path: str, data: dict):
+    def _patch_request(self, path: str, data: dict[str, Any]):
         """
         Modify values in Motu datastore
 
         :param path: path from the datastore to the root node of data
         :param data: a flat dict where keys are paths
         """
-        # print("patch")
-        path = f"{self.api_url}/{path}"
-        body = {'json': json.dumps(data)}
 
-        requests.patch(path, body)
+        if len(data) == 1:
+            (sub_path, value), = data.items()
+            path = "/".join([path, sub_path])
+            data = {"value": value}
+
+        url = f"{self.api_url}/{path}"
+        body = {'json': json.dumps(data)}
+        requests.patch(url, body)
+        # print(path, data)
 
     def start_long_poll(self, path: str):
         asyncio.run_coroutine_threadsafe(self.long_poll(path), self.req_loop)

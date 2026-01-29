@@ -18,12 +18,13 @@ class ControlFlags(IntFlag):
         return self.name or self.__name__
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class XTouchControlDescriptor(ControlDescriptor):
     layer: int
     group: int
     i: int
     control_flags: ControlFlags
+    name: str
 
     def __hash__(self) -> int:
         h = self.control_flags
@@ -34,11 +35,13 @@ class XTouchControlDescriptor(ControlDescriptor):
         return h
 
 
-@dataclass
+@dataclass(eq=False)
 class XTouchControl(Control, ABC):
     descriptor: XTouchControlDescriptor
 
     def __post_init__(self):
+        self.ccs: dict[str, int] = {}
+        self.notes: dict[str, int] = {}
         self.is_fader = bool(self.descriptor.control_flags & ControlFlags.Fader)
         self.is_encoder = bool(self.descriptor.control_flags & ControlFlags.Encoder)
         self.is_button = bool(self.descriptor.control_flags & ControlFlags.Button)
@@ -114,4 +117,5 @@ class Button(XTouchControl):
     def get_value(self) -> float:
         return float(self.pressed)
 
-    def handle_event(self, event_flags: ControlEventFlags, value: int): ...
+    def handle_event(self, event_flags: ControlEventFlags, value: int):
+        self.pressed = bool(event_flags & ControlEventFlags.Down)

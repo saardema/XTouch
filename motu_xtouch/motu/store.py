@@ -13,21 +13,20 @@ class AudioChannel:
     default_name: str
     routing: tuple[int, ...] | None = None
     source: AudioChannel | None = None
-    stereo_twin: AudioChannel | None = None
-    is_right_channel: bool = False
+    name_override: str = ""
 
     @property
     def name(self):
         name = self.default_name
 
-        if self.assigned_name:
+        if self.name_override:
+            name = self.name_override
+
+        elif self.assigned_name:
             name = self.assigned_name
 
         elif self.source:
             name = self.source.name
-
-        if self.stereo_twin:
-            name = name.removesuffix(" L").removesuffix(" R")
 
         return name
 
@@ -50,32 +49,18 @@ class AudioChannel:
 @dataclass(frozen=True)
 class ChannelBank(ABC):
     name: str
-    n_available_channels: int
+    n_enabled_channels: int
     channels: dict[int, AudioChannel]
-
-    def __post_init__(self):
-        self.update_stereo_pairs()
 
     @classmethod
     def from_bank_data(cls, bank_data: dict):
         return cls(
             name=bank_data["name"],
-            n_available_channels=bank_data["userCh"],
+            n_enabled_channels=bank_data["userCh"],
             channels={
                 int(c): AudioChannel.from_bank_data(ch_data)
                 for c, ch_data in bank_data["ch"].items()
             })
-
-    def update_stereo_pairs(self):
-        if self.n_available_channels < 2:
-            return
-
-        for idx in range(0, self.n_available_channels, 2):
-            left, right = self.channels[idx], self.channels[idx + 1]
-            if right.name.endswith(" R"):
-                left.stereo_twin = right
-                right.stereo_twin = left
-                right.is_right_channel = True
 
 
 @dataclass(frozen=True)
@@ -93,16 +78,61 @@ class OutputBank(ChannelBank):
 
 
 class MixerStore:
-    def __init__(self):
-        self._client = MotuHttpClient(self.long_poll_change)
-        self.mix_state = self._client.fetch_path("mix")
-        self.input_banks, self.output_banks = self.parse_banks()
+    """
+    Represents state of the Motu audio interface
+        - Read-only view into the available inputs and outputs of the audio interface
+        - Read/write access to the state of the mixer
+    """
 
-        self.banks = {
-            "chan": self.output_banks[6].channels,
-            "group": self.input_banks[7].channels,
-            "aux": self.input_banks[9].channels,
-        }
+    def __init__(self):
+
+        self._client = MotuHttpClient(self.long_poll_change)
+        self.mix_state: dict[str, TParam] = {}
+        self.update_mix_state()
+
+        self.input_banks: dict[int, InputBank] = {}
+        self.input_banks_dir: dict[str, InputBank] = {}
+        self.output_banks: dict[int, OutputBank] = {}
+        self.output_banks_dir: dict[str, OutputBank] = {}
+        self.parse_banks()
+
+    def update_mix_state(self):
+        self.mix_state = self._client.fetch_path("mix")
+
+    def get_bank(self, name: str, join_stereo_pairs=True, enabled_only=True) -> dict[int, AudioChannel]:
+        channels: dict[int, AudioChannel] = {}
+
+        bank = self.input_banks_dir.get(name)
+        if not bank:
+            bank = self.output_banks_dir.get(name)
+
+        assert bank is not None
+
+        for i, chan in bank.channels.items():
+            if enabled_only and i == bank.n_enabled_channels:
+                break
+
+            if join_stereo_pairs and self.is_right_chan(bank, i):
+                left = channels[i - 1]
+                left.name_override = left.name.removesuffix(" L")
+                continue
+
+            channels[i] = chan
+
+        return channels
+
+    def is_right_chan(self, bank, i):
+        if i % 2 == 1:
+            if bank.name == "Mix Group":
+                return True
+
+            if bank.name == "Mix Aux" and self.mix_state[f"aux/{i}/config/format"] == "2:1":
+                return True
+
+            if bank.name == "Mix In" and self.mix_state[f"chan/{i}/config/format"] == "2:1":
+                return True
+
+        return False
 
     def push_change(self, path: str, value: TParam):
         if self.mix_state[path] == value:
@@ -115,28 +145,24 @@ class MixerStore:
         self.mix_state |= data
         print(data)
 
-    def parse_banks(self) -> tuple[dict[int, InputBank], dict[int, OutputBank]]:
-        ins = {
-            int(bank_nr): InputBank.from_bank_data(bank_data)
-            for bank_nr, bank_data in self.fetch("ext/ibank").items()
-        }
+    def parse_banks(self):
+        for i, bank_data in self._fetch("ext/ibank").items():
+            bank = InputBank.from_bank_data(bank_data)
+            self.input_banks[int(i)] = bank
+            self.input_banks_dir[bank.name] = bank
 
-        outs = {
-            int(bank_nr): OutputBank.from_bank_data(bank_data)
-            for bank_nr, bank_data in self.fetch("ext/obank").items()
-        }
+        for i, bank_data in self._fetch("ext/obank").items():
+            bank = OutputBank.from_bank_data(bank_data)
+            self.output_banks[int(i)] = bank
+            self.output_banks_dir[bank.name] = bank
+            bank.populate_sources(self.input_banks)
 
-        for bank in outs.values():
-            bank.populate_sources(ins)
-
-        return ins, outs
-
-    def fetch(self, path: str):
+    def _fetch(self, path: str):
         flat_dict = self._client.fetch_path(path)
 
-        return self.to_deep_dict(flat_dict)
+        return self._to_deep_dict(flat_dict)
 
-    def to_deep_dict(self, flat_source: dict) -> dict[str, Any]:
+    def _to_deep_dict(self, flat_source: dict) -> dict[str, Any]:
         store_dict = {}
 
         for path, value in flat_source.items():
@@ -147,7 +173,7 @@ class MixerStore:
                 if key != parts[-1]:
                     base = base.setdefault(key, {})
 
-            # The API has a dict and str value for "ctrls/reverb"
+            # The API has both a dict and str value for "ctrls/reverb"
             # so rename one of them to avoid a conflict
             if path == "ctrls/reverb":
                 key = 'reverbMeterStripOrder'

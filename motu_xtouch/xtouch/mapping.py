@@ -48,21 +48,21 @@ class XtouchMapping:
     note_lookup: dict[int, tuple[XTouchControlDescriptor, MapRanges]] = {}
 
     _cc_ranges = {
-        "encoders": MapRanges(
+        "encoder": MapRanges(
             [MapRange(10), MapRange(18)],
             [MapRange(37), MapRange(45)],
             ControlFlags.Encoder,
             ControlEventFlags.Move
         ),
 
-        "faders": MapRanges(
+        "fader": MapRanges(
             [MapRange(1)],
             [MapRange(28)],
             ControlFlags.Fader,
             ControlEventFlags.Move
         ),
 
-        "faders_touch": MapRanges(
+        "fader_touch": MapRanges(
             [MapRange(101)],
             [MapRange(111)],
             ControlFlags.Fader,
@@ -85,14 +85,14 @@ class XtouchMapping:
     }
 
     _note_ranges = {
-        "encoders": MapRanges(
+        "encoder": MapRanges(
             [MapRange(0), MapRange(8)],
             [MapRange(55), MapRange(63)],
             ControlFlags.Encoder,
             ControlEventFlags.Press
         ),
 
-        "buttons": MapRanges(
+        "button": MapRanges(
             [MapRange(16), MapRange(24), MapRange(32), MapRange(40)],
             [MapRange(71), MapRange(79), MapRange(87), MapRange(95)],
             ControlFlags.Button,
@@ -106,7 +106,7 @@ class XtouchMapping:
             ControlEventFlags.Press
         ),
 
-        "transport_buttons": MapRanges(
+        "transport_button": MapRanges(
             [MapRange(49, 6)],
             [MapRange(104, 6)],
             ControlFlags.Button | ControlFlags.Transport,
@@ -149,7 +149,7 @@ class XtouchMapping:
     def _build_lookup(values: dict[str, MapRanges]) -> dict[int, tuple[XTouchControlDescriptor, MapRanges]]:
         lookup = {}
 
-        for ranges in values.values():
+        for ranges_key, ranges in values.items():
             for layer in ranges.a_ranges, ranges.b_ranges:
                 for y, x_range in enumerate(layer):
                     for n in x_range.values:
@@ -159,6 +159,7 @@ class XtouchMapping:
                                 y,
                                 n - x_range.start,
                                 ranges.ctrl_type,
+                                ranges_key
                             ),
                             ranges
                         )

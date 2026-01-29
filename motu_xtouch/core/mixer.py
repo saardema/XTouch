@@ -28,10 +28,10 @@ class ChannelType(Enum):
 
 
 class Mixer(ABC):
-    def __init__(self, n_channels: int, n_aux: int, n_groups: int):
+    def __init__(self, n_channels: int, n_groups: int, n_aux: int):
         self.n_channels = n_channels
-        self.n_aux = n_aux
         self.n_groups = n_groups
+        self.n_aux = n_aux
 
     @abstractmethod
     def set_parameter(self, param: Parameter, value: TParam): ...
