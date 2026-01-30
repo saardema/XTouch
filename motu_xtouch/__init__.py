@@ -1,5 +1,41 @@
 import math
 
+DB_MIN: float = -48.0  # Floor
+DB_MAX: float = 12.0  # Gain of 4
+GAIN_BIAS: float = 0.003  # Linearization
+
+
+def gain_to_norm(gain: float) -> float:
+    # Dash of epsilon to prevent log10 error
+    # gain = max(gain, 0.00001)
+
+    gain += GAIN_BIAS
+
+    # Convert linear gain factor to dB
+    currentDb = 20.0 * math.log10(gain)
+
+    # Map dB range to 0..1 range
+    norm: float = (currentDb - DB_MIN) / (DB_MAX - DB_MIN)
+    norm = clamp(norm, 0, 1)
+
+    return norm
+
+
+def norm_to_gain(norm: float) -> float:
+    # Map 0...1 to the decibel range
+    currentDb: float = norm * (DB_MAX - DB_MIN) + DB_MIN
+
+    # Convert dB to linear gain factor
+    gain: float = pow(10.0, currentDb / 20.0)
+
+    gain -= GAIN_BIAS
+
+    # Ensure 0 gain at bottom
+    if gain <= 0.001:
+        gain = 0.0
+
+    return gain
+
 
 def remap(t, a_min, a_max, b_min, b_max, clamp=True):
     a_range, b_range = a_max - a_min, b_max - b_min
@@ -11,42 +47,5 @@ def remap(t, a_min, a_max, b_min, b_max, clamp=True):
     return remapped
 
 
-def lin_to_log(value: float) -> float:
-    exp = -8 + value * 8
-    f = 2 ** exp
-    f -= 2 ** -8
-    f = min(max(f, 0), 1)
-
-    return f
-
-
-def log_to_lin(value: float) -> float:
-    value += 2 ** -8
-    f = 1 - math.log2(value) / -8
-
-    return f
-
-
-def midi_to_float(value: int, to_db=True):
-    if to_db:
-        gain = value / 100
-        f = lin_to_log(gain)
-    else:
-        f = value / 127
-
-    return min(max(f, 0), 4)
-
-
-def float_to_midi(value, db_to_lin=True):
-    if value <= 0:
-        return 0
-
-    if db_to_lin:
-        value = log_to_lin(value)
-        value *= 100
-    else:
-        value *= 127
-
-    value = int(min(max(value, 0), 127))
-
-    return value
+def clamp(v, low, high):
+    return min(max(v, low), high)

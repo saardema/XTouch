@@ -1,0 +1,73 @@
+{
+	"$schema": "http://json-schema.org/draft-07/schema#",
+	"title": "Motu XTouch Mapping Configuration",
+	"description": "Configuration schema for mapping.toml",
+	"type": "object",
+	"additionalProperties": false,
+	"properties": {
+		"mixer": {
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"inputs": {
+					"type": "object",
+					"description": "Input channel definitions",
+					"additionalProperties": {
+						"type": "object",
+						"description": "Input channel configuration",
+						"additionalProperties": false,
+						"properties": {
+							"disabled": {
+								"type": "boolean",
+								"description": "Makes the Input channel invisible and not configurable",
+								"default": false
+							}
+						}
+					}
+				},
+				"groups": {
+					"type": "object",
+					"description": "Mix Group definitions",
+					"additionalProperties": {
+						"type": "object",
+						"description": "Mix Group configuration",
+						"additionalProperties": false,
+						"properties": {
+							"send": {
+								"type": "boolean",
+								"description": "Allow input channels to send to this Group",
+								"default": true
+							},
+							"fader": {
+								"type": "boolean",
+								"description": "Makes the Group available as a channel strip in the main mix",
+								"default": true
+							}
+						}
+					}
+				},
+				"aux": {
+					"type": "object",
+					"description": "Auxiliary mix definitions",
+					"additionalProperties": {
+						"type": "object",
+						"description": "Auxiliary mix configuration",
+						"additionalProperties": false,
+						"properties": {
+							"send": {
+								"type": "boolean",
+								"description": "Allow input channels to send to this Aux mix",
+								"default": true
+							},
+							"fader": {
+								"type": "boolean",
+								"description": "Allow controlling the final Aux mix output fader",
+								"default": true
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+}

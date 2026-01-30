@@ -1,0 +1,39 @@
+{
+	"controller": {
+		"type": "object",
+		"additionalProperties": false,
+		"properties": {
+			"channel_strip": {
+				"type": "array",
+				"description": "Channel strips are vertical sections of controls consisting of an encoder, 4 buttons and a fader. Defined strips are assigned to controller strips one by one, skipping over disabled definitions.",
+				"items": {
+					"type": "object",
+					"additionalProperties": false,
+					"required": [
+						"src"
+					],
+					"properties": {
+						"src": {
+							"type": "string",
+							"description": "Label used to find the corresponding input channel or group by exact match.\n\n Mix input channels are named themselves, otherwise falling back to their input source, which falls back to the input's default name. Similarly, groups are either named or their default."
+						},
+						"type": {
+							"type": "string",
+							"enum": [
+								"input",
+								"group"
+							],
+							"description": "Type of channel strip source",
+							"default": "input"
+						},
+						"disabled": {
+							"type": "boolean",
+							"description": "Ignores the strip definition entirely. Useful for temporarily parking an unused mapping",
+							"default": false
+						}
+					}
+				}
+			}
+		}
+	}
+}

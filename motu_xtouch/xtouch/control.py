@@ -2,8 +2,13 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum, IntFlag, auto
+from typing import TYPE_CHECKING, Any, Any
 
+from motu_xtouch import gain_to_norm, norm_to_gain
 from motu_xtouch.core.core import Control, ControlDescriptor, ControlEventFlags
+
+if TYPE_CHECKING:
+    from motu_xtouch.xtouch.midi_client import XTouchMIDIClient
 
 
 class ControlFlags(IntFlag):
@@ -14,17 +19,21 @@ class ControlFlags(IntFlag):
     Transport = auto()
     Master = auto()
 
+    BaseMask = Fader | Encoder | Button
+
     def __repr__(self) -> str:
         return self.name or self.__name__
 
 
-@dataclass(frozen=True, eq=False)
+@dataclass(eq=False)
 class XTouchControlDescriptor(ControlDescriptor):
     layer: int
     group: int
     i: int
     control_flags: ControlFlags
-    name: str
+
+    move: int = -1
+    press: int = -1
 
     def __hash__(self) -> int:
         h = self.control_flags
@@ -35,16 +44,14 @@ class XTouchControlDescriptor(ControlDescriptor):
         return h
 
 
-@dataclass(eq=False)
-class XTouchControl(Control, ABC):
-    descriptor: XTouchControlDescriptor
+class XTouchControl(Control):
+    def __init__(self, descriptor: XTouchControlDescriptor, client: XTouchMIDIClient):
+        self.descriptor: XTouchControlDescriptor = descriptor
+        self.client: XTouchMIDIClient = client
 
-    def __post_init__(self):
-        self.ccs: dict[str, int] = {}
-        self.notes: dict[str, int] = {}
-        self.is_fader = bool(self.descriptor.control_flags & ControlFlags.Fader)
-        self.is_encoder = bool(self.descriptor.control_flags & ControlFlags.Encoder)
-        self.is_button = bool(self.descriptor.control_flags & ControlFlags.Button)
+        self.is_fader = bool(descriptor.control_flags & ControlFlags.Fader)
+        self.is_encoder = bool(descriptor.control_flags & ControlFlags.Encoder)
+        self.is_button = bool(descriptor.control_flags & ControlFlags.Button)
 
     @abstractmethod
     def handle_event(self, event_flags: ControlEventFlags, value: int): ...
@@ -52,12 +59,41 @@ class XTouchControl(Control, ABC):
     def __hash__(self) -> int:
         return hash(self.descriptor)
 
-    @abstractmethod
-    def get_value(self) -> float: ...
+    def set_value(self, val): ...
 
 
-@dataclass(eq=False)
-class Encoder(XTouchControl):
+class VolumeControl(XTouchControl, ABC):
+    midi_value: int = 0
+    touched: bool = False
+
+    @property
+    def normalized(self):
+        return self.midi_value / 127
+
+    @property
+    def gain(self):
+        return norm_to_gain(self.normalized)
+
+    @property
+    def value(self) -> float:
+        return self.gain
+
+    def set_value(self, val, is_gain=True):
+        if is_gain:
+            val = gain_to_norm(val)
+
+        self.midi_value = int(val * 127)
+        self.client.send_cc(self.descriptor.move, self.midi_value)
+
+    def handle_event(self, event_flags: ControlEventFlags, midi_value: int):
+        if event_flags & ControlEventFlags.Move:
+            self.midi_value = midi_value
+
+        elif event_flags & ControlEventFlags.Press:
+            self.touched = midi_value > 0
+
+
+class Encoder(VolumeControl, XTouchControl):
     class Mode(Enum):
         """
         CC values to send on global channel
@@ -69,53 +105,57 @@ class Encoder(XTouchControl):
         Spread = 3
         Trim = 4
 
-    value: float = 0
-    pressed: bool = False
+    # pressed: bool = False
     mode: Mode = Mode.Fan
 
-    def get_value(self) -> float:
-        return self.value
-
-    def handle_event(self, event_flags: ControlEventFlags, value: int):
-        if event_flags & ControlEventFlags.Move:
-            self.value = value / 127
-
-        elif event_flags & ControlEventFlags.Press:
-            self.pressed = value > 0
+    def set_mode(self, mode: Mode):
+        self.mode = mode
+        self.client.send_cc(self.descriptor.move, mode.value, True)
 
 
-@dataclass(eq=False)
-class Fader(XTouchControl):
-    value: float = 0
-    touched: bool = False
-
-    def get_value(self) -> float:
-        return self.value
-
-    def handle_event(self, event_flags: ControlEventFlags, value: int):
-        if event_flags & ControlEventFlags.Move:
-            self.value = value / 127
-
-        elif event_flags & ControlEventFlags.Press:
-            self.touched = value > 0
+class Fader(VolumeControl, XTouchControl):
+    ...
 
 
-@dataclass(eq=False)
 class Button(XTouchControl):
-    class Mode(Enum):
+    class LEDMode(Enum):
         """
         Note on velocity to send on global channel
         to control the LED state
         """
-        Off = 0
-        On = 1
-        Blink = 2
+        Off = 1
+        On = 2
+        Blink = 3
 
-    pressed: bool = False
-    mode: Mode = Mode.Off
+    led_mode: LEDMode = LEDMode.Off
+    is_toggle: bool = False
+    toggled: bool = False
 
-    def get_value(self) -> float:
-        return float(self.pressed)
+    @property
+    def value(self) -> int:
+        if self.is_toggle:
+            return int(self.toggled)
+
+        return int(self.pressed)
+
+    def set_value(self, value: Any):
+        state = bool(value)
+
+        if self.is_toggle:
+            self.toggled = state
+
+        self.set_led(self.LEDMode.On if state else self.LEDMode.Off)
 
     def handle_event(self, event_flags: ControlEventFlags, value: int):
-        self.pressed = bool(event_flags & ControlEventFlags.Down)
+        self.pressed = value > 0
+
+        if self.pressed:
+            if self.is_toggle:
+                self.set_value(not self.toggled)
+
+        elif self.led_mode != self.LEDMode.Off:
+            self.set_led(self.led_mode)
+
+    def set_led(self, state: LEDMode):
+        self.led_mode = state
+        self.client.send_note_on(self.descriptor.press - 16, state.value, True)

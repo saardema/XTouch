@@ -1,5 +1,6 @@
 from __future__ import annotations
 from abc import ABC
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -84,20 +85,26 @@ class MixerStore:
         - Read/write access to the state of the mixer
     """
 
-    def __init__(self):
+    def __init__(self, change_callback: Callable[[dict[str, TParam]]]):
 
-        self._client = MotuHttpClient(self.long_poll_change)
+        self._change_callback = change_callback
+        self._client = MotuHttpClient(self.on_long_poll_mix_change)
+
         self.mix_state: dict[str, TParam] = {}
-        self.update_mix_state()
+        self.pull_mix_state()
+        self._client.start_long_poll()
 
+        # I/O groups (Analog,S/PDIF,Aux)
         self.input_banks: dict[int, InputBank] = {}
         self.input_banks_dir: dict[str, InputBank] = {}
         self.output_banks: dict[int, OutputBank] = {}
         self.output_banks_dir: dict[str, OutputBank] = {}
-        self.parse_banks()
+        self._parse_banks()
 
-    def update_mix_state(self):
+    def pull_mix_state(self):
+        print("pull mix")
         self.mix_state = self._client.fetch_path("mix")
+        self._change_callback(self.mix_state)
 
     def get_bank(self, name: str, join_stereo_pairs=True, enabled_only=True) -> dict[int, AudioChannel]:
         channels: dict[int, AudioChannel] = {}
@@ -112,7 +119,7 @@ class MixerStore:
             if enabled_only and i == bank.n_enabled_channels:
                 break
 
-            if join_stereo_pairs and self.is_right_chan(bank, i):
+            if join_stereo_pairs and self._is_right_chan(bank, i):
                 left = channels[i - 1]
                 left.name_override = left.name.removesuffix(" L")
                 continue
@@ -121,7 +128,30 @@ class MixerStore:
 
         return channels
 
-    def is_right_chan(self, bank, i):
+    def push_change(self, path: str, value: TParam):
+        if self.mix_state[path] == value:
+            return
+
+        self.mix_state[path] = value
+        self._client.push_change(path, value)
+
+    def on_long_poll_mix_change(self, mix_state_change: dict):
+        self.mix_state |= mix_state_change
+        self._change_callback(mix_state_change)
+
+    def _parse_banks(self):
+        for i, bank_data in self._fetch("ext/ibank").items():
+            bank = InputBank.from_bank_data(bank_data)
+            self.input_banks[int(i)] = bank
+            self.input_banks_dir[bank.name] = bank
+
+        for i, bank_data in self._fetch("ext/obank").items():
+            bank = OutputBank.from_bank_data(bank_data)
+            self.output_banks[int(i)] = bank
+            self.output_banks_dir[bank.name] = bank
+            bank.populate_sources(self.input_banks)
+
+    def _is_right_chan(self, bank, i):
         if i % 2 == 1:
             if bank.name == "Mix Group":
                 return True
@@ -134,31 +164,14 @@ class MixerStore:
 
         return False
 
-    def push_change(self, path: str, value: TParam):
-        if self.mix_state[path] == value:
-            return
-
-        self.mix_state[path] = value
-        self._client.push_change(path, value)
-
-    def long_poll_change(self, data: dict):
-        self.mix_state |= data
-        print(data)
-
-    def parse_banks(self):
-        for i, bank_data in self._fetch("ext/ibank").items():
-            bank = InputBank.from_bank_data(bank_data)
-            self.input_banks[int(i)] = bank
-            self.input_banks_dir[bank.name] = bank
-
-        for i, bank_data in self._fetch("ext/obank").items():
-            bank = OutputBank.from_bank_data(bank_data)
-            self.output_banks[int(i)] = bank
-            self.output_banks_dir[bank.name] = bank
-            bank.populate_sources(self.input_banks)
-
     def _fetch(self, path: str):
         flat_dict = self._client.fetch_path(path)
+
+        # The API has both a dict and str value for "ctrls/reverb"
+        # so rename one of them to avoid a conflict
+        if "ctrls/reverb" in flat_dict:
+            flat_dict["ctrls/reverbMeterStripOrder"] = flat_dict["ctrls/reverb"]
+            del flat_dict["ctrls/reverb"]
 
         return self._to_deep_dict(flat_dict)
 
@@ -172,11 +185,6 @@ class MixerStore:
             for key in parts:
                 if key != parts[-1]:
                     base = base.setdefault(key, {})
-
-            # The API has both a dict and str value for "ctrls/reverb"
-            # so rename one of them to avoid a conflict
-            if path == "ctrls/reverb":
-                key = 'reverbMeterStripOrder'
 
             base[key] = value
 

@@ -24,7 +24,7 @@ class ControlEventFlags(IntFlag):
         return self.name or self.__name__
 
 
-@dataclass(frozen=True)
+@dataclass
 class ControlDescriptor(ABC):
     @abstractmethod
     def __hash__(self) -> int: ...
@@ -33,3 +33,6 @@ class ControlDescriptor(ABC):
 @dataclass
 class Control(ABC):
     descriptor: ControlDescriptor
+
+    @property
+    def value(self) -> float: ...

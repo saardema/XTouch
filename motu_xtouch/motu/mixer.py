@@ -1,9 +1,12 @@
 from __future__ import annotations
 from collections.abc import Callable
+from typing import TypeVar
 
-from motu_xtouch import lin_to_log
+
 from motu_xtouch.core.mixer import AuxChannel, GroupChannel, InputChannel, MainChannel, Mixer, Parameter, MixerChannel, TParam
 from motu_xtouch.motu.store import AudioChannel, MixerStore
+
+T = TypeVar("T", int, str, float, bool)
 
 
 class MotuParameter(Parameter):
@@ -32,7 +35,7 @@ class MotuParameter(Parameter):
     def set_value(self, new_value: TParam, silent=False):
         self.value = self.param_type(new_value)
         if not silent:
-            self.channel.mixer.on_parameter_change(self)
+            self.channel.mixer.parameter_changed(self)
 
     def parse_config(self, mix: dict[str, TParam]):
         cfg_key = self.param_path
@@ -47,7 +50,7 @@ class MotuParameter(Parameter):
             case [cfg_type, initial, min_val, max_val, unit]: ...
             case [cfg_type, initial]: ...
 
-        ptype = {"bool": bool, "int": int}.get(cfg_type, float)
+        ptype = {"bool": float, "int": int}.get(cfg_type, float)
         initial = ptype(initial) if initial is not None else ptype()
         self.min_val = ptype(min_val) if min_val is not None else None
         self.max_val = ptype(max_val) if max_val is not None else None
@@ -57,9 +60,11 @@ class MotuParameter(Parameter):
 
 
 class MotuMixer(Mixer):
-    def __init__(self, callback: Callable[[MotuParameter], None]) -> None:
-        self.callback = callback
-        self.store = MixerStore()
+    def __init__(self, on_parameter_updated: Callable[[MotuParameter], None]) -> None:
+        self.parameter_changed_callback = on_parameter_updated
+        self.params: dict[str, MotuParameter] = {}
+
+        self.store = MixerStore(self.store_changed)
 
         self.input_bank = self.store.get_bank("Mix In")
         self.group_bank = self.store.get_bank("Mix Group")
@@ -80,6 +85,14 @@ class MotuMixer(Mixer):
         self.aux: dict[int, MotuAux] = {}
         self.init_bank(self.aux, self.aux_bank, MotuAux, self.store.mix_state)
 
+    def store_changed(self, data: dict[str, TParam]):
+        if not self.params:
+            return
+
+        for path, val in data.items():
+            if param := self.params.get(path):
+                param.set_value(val)
+
     def init_bank(self, target: dict, bank: dict[int, AudioChannel], cls: type[MotuMixerChannel], mix_state: dict):
         for i, chan in bank.items():
             target[i] = cls(self, i, chan.name)
@@ -90,8 +103,8 @@ class MotuMixer(Mixer):
         param.set_value(ctrl_value, silent)
         self.store.push_change(param.path, param.value)
 
-    def on_parameter_change(self, param: MotuParameter):
-        self.callback(param)
+    def parameter_changed(self, param: MotuParameter):
+        self.parameter_changed_callback(param)
 
 
 class MotuMixerChannel(MixerChannel):
@@ -113,6 +126,7 @@ class MotuMixerChannel(MixerChannel):
             if isinstance(path_data, str):
                 param = MotuParameter(self, path_data, state)
                 param.set_from_state(state, True)
+                self.mixer.params[param.path] = param
                 setattr(self, key, param)
 
             elif isinstance(path_data, dict):
@@ -120,6 +134,7 @@ class MotuMixerChannel(MixerChannel):
                 for i, sub_path in path_data.items():
                     params[i] = MotuParameter(self, sub_path, state)
                     params[i].set_from_state(state, True)
+                    self.mixer.params[params[i].path] = params[i]
 
                 setattr(self, key, params)
 

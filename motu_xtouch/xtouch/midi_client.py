@@ -1,8 +1,8 @@
 from collections.abc import Callable
 import mido
 
-from motu_xtouch import float_to_midi
-from motu_xtouch.xtouch.mapping import ControlEventFlags, XTouchControlDescriptor, XtouchMapping
+from motu_xtouch.xtouch.mapping import XtouchMapping
+from xtouch.control import ControlEventFlags, XTouchControlDescriptor
 
 
 DEVICE_NAME = 'X-TOUCH COMPACT'
@@ -30,11 +30,15 @@ class XTouchMIDIClient:
         except OSError as e:
             print(e)
 
-    def set_cc_float(self, cc: int, value: float, log_to_lin=True, global_channel=False):
-        value = float_to_midi(value, log_to_lin)
-        self.set_cc(cc, value, global_channel)
+    def send_note_on(self, note: int, velocity: int, global_channel=False):
+        channel = GLOBAL_CHANNEL if global_channel else 0
+        msg = mido.Message('note_on', note=note, velocity=velocity, channel=channel)
+        self._outport.send(msg)
 
-    def set_cc(self, cc: int, value: int, global_channel=False):
+    def set_cc_float(self, cc: int, value: float, global_channel=False):
+        self.send_cc(cc, int(value * 127), global_channel)
+
+    def send_cc(self, cc: int, value: int, global_channel=False):
         channel = GLOBAL_CHANNEL if global_channel else 0
         msg = mido.Message('control_change', control=cc, value=value, channel=channel)
         self._outport.send(msg)

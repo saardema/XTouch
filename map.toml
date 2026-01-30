@@ -1,0 +1,36 @@
+
+[[controller.channel_strip]]
+src = "TR-8S Mix"
+
+[[controller.channel_strip]]
+src = "TR-8S Kick"
+
+[[controller.channel_strip]]
+src = "Sub-37"
+
+[[controller.channel_strip]]
+src = "Labyrinth"
+
+[[controller.channel_strip]]
+src      = "MS-20"
+disabled = true
+
+[[controller.channel_strip]]
+src      = "Model D"
+disabled = true
+
+[[controller.channel_strip]]
+src = "Digitakt"
+
+[[controller.channel_strip]]
+src  = "TR-8S Group"
+type = "group"
+
+[[controller.channel_strip]]
+src = "Minilogue XD"
+
+[[controller.channel_strip]]
+src = "FX Return"
+
+[[controller.channel_strip]]
+src = "Mac"

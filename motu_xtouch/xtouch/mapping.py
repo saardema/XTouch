@@ -46,6 +46,7 @@ class MapRanges:
 class XtouchMapping:
     cc_lookup: dict[int, tuple[XTouchControlDescriptor, MapRanges]] = {}
     note_lookup: dict[int, tuple[XTouchControlDescriptor, MapRanges]] = {}
+    descs = dict[int, XTouchControlDescriptor]()
 
     _cc_ranges = {
         "encoder": MapRanges(
@@ -147,22 +148,24 @@ class XtouchMapping:
 
     @staticmethod
     def _build_lookup(values: dict[str, MapRanges]) -> dict[int, tuple[XTouchControlDescriptor, MapRanges]]:
-        lookup = {}
+        lookup: dict[int, tuple[XTouchControlDescriptor, MapRanges]] = {}
 
         for ranges_key, ranges in values.items():
             for layer in ranges.a_ranges, ranges.b_ranges:
                 for y, x_range in enumerate(layer):
                     for n in x_range.values:
-                        lookup[n] = (
-                            XTouchControlDescriptor(
-                                int(layer == ranges.b_ranges),
-                                y,
-                                n - x_range.start,
-                                ranges.ctrl_type,
-                                ranges_key
-                            ),
-                            ranges
-                        )
+                        l = int(layer == ranges.b_ranges)
+                        i = n - x_range.start
+
+                        candidate = XTouchControlDescriptor(l, y, i, ranges.ctrl_type)
+                        desc = XtouchMapping.descs.get(hash(candidate), candidate)
+                        XtouchMapping.descs[hash(desc)] = desc
+                        lookup[n] = desc, ranges
+
+                        if ranges.event == ControlEventFlags.Press:
+                            desc.press = n
+                        else:
+                            desc.move = n
 
         return lookup
 
