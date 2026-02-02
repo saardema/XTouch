@@ -16,7 +16,7 @@ class Parameter:
         self.param_type = param_type
         self.value: TParam = initial if initial is not None else param_type()
 
-    def set_value(self, new_value: TParam):
+    def _set_value(self, new_value: TParam):
         self.value = self.param_type(new_value)
 
 
@@ -39,6 +39,8 @@ class Mixer(ABC):
 
 class MixerChannel:
     channel_type: ChannelType
+    fader: Parameter
+    mute: Parameter
 
     def __init__(self, mixer: Mixer, channel_number: int, name: str = ""):
         self.name = name
@@ -52,11 +54,17 @@ class MainChannel(MixerChannel):
 
 class InputChannel(MixerChannel):
     channel_type = ChannelType.Input
+    aux_sends: dict[int, Parameter]
 
 
-class GroupChannel(MixerChannel):
+class SendChannel(MixerChannel):
+    ...
+
+
+class GroupChannel(SendChannel):
     channel_type = ChannelType.Group
+    aux_sends: dict[int, Parameter]
 
 
-class AuxChannel(MixerChannel):
+class AuxChannel(SendChannel):
     channel_type = ChannelType.Aux

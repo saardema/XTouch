@@ -1,5 +1,5 @@
 [project]
-name = "motu_xtouch"
+name = "ctrl_mix"
 version = "0.1.0"
 description = ""
 authors = [{ name = "Sam Aardema", email = "sam.aardema@gmail.com" }]
@@ -14,9 +14,9 @@ dependencies = [
 ]
 
 [tool.poetry]
-packages = [{ include = "motu_xtouch" }]
+packages = [{ include = "ctrl_mix" }]
 
 
 [build-system]
-requires = ["poetry-core>=2.0.0,<3.0.0"]
+requires      = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"

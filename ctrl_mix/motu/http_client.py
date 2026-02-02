@@ -64,8 +64,6 @@ class MotuHttpClient:
         asyncio.set_event_loop(self.req_loop)
         self.req_loop.run_forever()
 
-        # asyncio.run_coroutine_threadsafe(self.long_poll("mix"), self.req_loop)
-
     async def _schedule_patch(self):
         """
         Commit new value immediately or in the near future
@@ -107,17 +105,16 @@ class MotuHttpClient:
         requests.patch(url, body)
 
     def long_poll(self, path: str = "mix"):
-        print("Start long poll")
-
         while True:
             resp = requests.get(
                 self.get_url(path),
                 headers={"If-None-Match": str(self.etag)}
             )
 
-            # if resp.status_code == 304:
-            # Time out after 15 seconds
-            # continue
+            if resp.status_code == 304:
+                # Expected time out after 15 seconds
+                # meaning no change occured
+                continue
 
             if resp.status_code == 200:
                 etag = int(resp.headers["etag"])
@@ -142,3 +139,6 @@ class MotuHttpClient:
                         print("     RECV", "(the whole fucking datastore)")
 
                     self.long_poll_callback(data)
+
+            else:
+                raise ValueError("Unhandled long poll status header")

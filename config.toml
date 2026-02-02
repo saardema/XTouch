@@ -10,13 +10,3 @@
 
 [mixer.groups]
 "Group 5" = { send = false, fader = false }
-
-# [channel_strips]
-# 0 = 2  # TR-8S Mix
-# 1 = 4  # TR-8S Kick
-# 2 = 5  # Sub-37
-# 3 = 6  # Labyrinth
-# 4 = 10 # Digitakt
-# 5 = 12 # Minilogue XD
-# 6 = 20 # FX Return
-# 7 = 18 # Mac

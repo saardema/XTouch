@@ -1,8 +1,8 @@
 import math
 
-DB_MIN: float = -48.0  # Floor
+DB_MIN: float = -40.0  # Floor
 DB_MAX: float = 12.0  # Gain of 4
-GAIN_BIAS: float = 0.003  # Linearization
+GAIN_BIAS: float = 0.01  # Assigns more resolution around 0dB
 
 
 def gain_to_norm(gain: float) -> float:

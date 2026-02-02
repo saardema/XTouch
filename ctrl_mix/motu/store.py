@@ -94,7 +94,7 @@ class MixerStore:
         self.pull_mix_state()
         self._client.start_long_poll()
 
-        # I/O groups (Analog,S/PDIF,Aux)
+        # I/O groups (Analog, S/PDIF, Aux, etc.)
         self.input_banks: dict[int, InputBank] = {}
         self.input_banks_dir: dict[str, InputBank] = {}
         self.output_banks: dict[int, OutputBank] = {}
@@ -102,7 +102,6 @@ class MixerStore:
         self._parse_banks()
 
     def pull_mix_state(self):
-        print("pull mix")
         self.mix_state = self._client.fetch_path("mix")
         self._change_callback(self.mix_state)
 

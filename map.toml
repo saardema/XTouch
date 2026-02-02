@@ -1,36 +1,40 @@
+# Fader 1-8
 
-[[controller.channel_strip]]
-src = "TR-8S Mix"
+[[channel_strip]]
+src = "TR-8S"
 
-[[controller.channel_strip]]
+[[channel_strip]]
 src = "TR-8S Kick"
 
-[[controller.channel_strip]]
+[[channel_strip]]
 src = "Sub-37"
 
-[[controller.channel_strip]]
+[[channel_strip]]
 src = "Labyrinth"
 
-[[controller.channel_strip]]
-src      = "MS-20"
-disabled = true
-
-[[controller.channel_strip]]
-src      = "Model D"
-disabled = true
-
-[[controller.channel_strip]]
+[[channel_strip]]
 src = "Digitakt"
 
-[[controller.channel_strip]]
+[[channel_strip]]
+src = "Pro-800"
+
+[[channel_strip]]
+src = "FX Return"
+
+[[channel_strip]]
+src = "Mac"
+
+# Fader 9-16
+
+[[channel_strip]]
 src  = "TR-8S Group"
 type = "group"
 
-[[controller.channel_strip]]
+[[channel_strip]]
 src = "Minilogue XD"
 
-[[controller.channel_strip]]
-src = "FX Return"
+[[channel_strip]]
+src = "MS-20"
 
-[[controller.channel_strip]]
-src = "Mac"
+[[channel_strip]]
+src = "Model D"
