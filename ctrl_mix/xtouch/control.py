@@ -14,6 +14,8 @@ class ControlType(IntEnum):
     Encoder = auto()
     Button = auto()
 
+
+class ControlSubType(IntEnum):
     Channel = auto()
     Main = auto()
     Side = auto()
@@ -71,12 +73,12 @@ class Encoder(XTouchControl):
         self._mode = mode
         self.adapter.set_encoder_mode(self.index, mode.value)
 
-    def set_ring(self, value, blink=False, single=True):
+    def set_ring(self, value: float | None = None, blink=False):
         """
         Changing ring mode can only be done globally, so if the
         active layer is different, it will update the wrong control
         """
-        self.adapter.set_encoder_ring(self.index, value, blink, single)
+        self.adapter.set_encoder_ring(self.index, value, blink)
 
     def set_value(self, value: float):
         self.value = value
@@ -109,8 +111,12 @@ class Button(XTouchControl):
     _led_mode: LEDMode = LEDMode.Off
     value: bool = False
 
-    def set_value(self, value: bool):
+    def set_value(self, value: bool, force_sync=False):
+        prev = self.value
         self.value = value
+
+        if force_sync or prev != value:
+            self.sync()
 
     def sync(self):
         self.set_led(self.value)
@@ -119,7 +125,7 @@ class Button(XTouchControl):
         if self.is_toggle:
             self.value = not self.value
 
-            if self.value:
+            if not self.value:
                 # To ensure LED is off when toggled off,
                 # set LED off when pressed to overwrite internal LED toggle
                 self.set_led(False)

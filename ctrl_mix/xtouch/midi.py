@@ -3,6 +3,7 @@ from collections.abc import Callable
 from enum import Flag, auto
 import mido
 
+from ctrl_mix.core.events import Event, EventEmitter
 from ctrl_mix.xtouch.control import ControlType
 
 
@@ -11,10 +12,7 @@ DEVICE_NAME = "X-TOUCH COMPACT"
 
 class XTouchMIDIClient:
 
-    def __init__(
-            self,
-            midi_callback: Callable,
-    ) -> None:
+    def __init__(self, midi_callback: Callable) -> None:
 
         self.ready = False
         self.midi_callback = midi_callback
@@ -64,38 +62,38 @@ Layer B => CH 2
 """
 
 
-class CtrlEvent(Flag):
-    Move = auto()
-    Press = auto()
-    Start = auto()
-    End = auto()
+class MidiCtrlEvent(Flag):
+    PressEvent = auto()
+    EventStart = auto()
+    EventEnd = auto()
 
-    Pressed = Press | Start
-    Released = Press | End
+    Moved = auto()
+
+    Pressed = PressEvent | EventStart
+    Released = PressEvent | EventEnd
 
 
-class XTouchMidiAdapter:
+class XTouchMidiAdapter(EventEmitter):
 
     cc_map = [
-        (ControlType.Fader, CtrlEvent.Move, range(9), "main", {"channel": 7}),
-        (ControlType.Encoder, CtrlEvent.Move, range(10, 26), "side", {"channel": 17}),
-        (ControlType.Fader, CtrlEvent.Press, range(100, 110), "main", {"channel": 107}),
+        (ControlType.Fader, MidiCtrlEvent.Moved, range(9), "main", {"channel": 7}),
+        (ControlType.Encoder, MidiCtrlEvent.Moved, range(10, 26), "side", {"channel": 17}),
+        (ControlType.Fader, MidiCtrlEvent.PressEvent, range(100, 110), "main", {"channel": 107}),
     ]
 
     note_map = [
-        (ControlType.Button, CtrlEvent.Press, range(55), "transport", {"channel": 31, "main": 32}),
-        (ControlType.Encoder, CtrlEvent.Press, range(55, 71), "side", {"channel": 62}),
+        (ControlType.Button, MidiCtrlEvent.PressEvent, range(55), "transport", {"channel": 31, "main": 32}),
+        (ControlType.Encoder, MidiCtrlEvent.PressEvent, range(55, 71), "side", {"channel": 62}),
     ]
 
     global_channel: int = 2
     encoder_cc_start: int = cc_map[1][2].start
 
-    def __init__(
-            self,
-            value_change_callback: Callable[[ControlType, CtrlEvent, int, int, float], None]) -> None:
+    MidiControlChanged = Event[Callable[[ControlType, MidiCtrlEvent, int, int, float], None]]("MidiControlChanged")
 
+    def __init__(self) -> None:
+        super().__init__()
         self.client = XTouchMIDIClient(self.on_control_changed)
-        self.ctrl_change_callback = value_change_callback
         self.client.connect()
 
     def on_control_changed(self, is_cc: bool, layer: int, number: int, value: int):
@@ -116,15 +114,13 @@ class XTouchMidiAdapter:
             print(f"Unhandled CC: chan {layer}, CC {number}, value {value}")
             return
 
-        if event & CtrlEvent.Press:
+        if event & MidiCtrlEvent.PressEvent:
             if value > 0:
-                event |= CtrlEvent.Start
+                event |= MidiCtrlEvent.EventStart
             else:
-                event |= CtrlEvent.End
+                event |= MidiCtrlEvent.EventEnd
 
-        # print(event, sub_type, ctrl.name.lower(), idx)
-
-        self.ctrl_change_callback(ctrl, event, layer, idx, normalized)
+        self.emit(XTouchMidiAdapter.MidiControlChanged, ctrl, event, layer, idx, normalized)
 
     def set_fader_value(self, layer: int, index: int, value: float):
         cc_number = index
@@ -153,7 +149,7 @@ class XTouchMidiAdapter:
         cc_number = index + self.encoder_cc_start
         self.client.send_cc(cc_number, mode, self.global_channel)
 
-    def set_encoder_ring(self, index: int, value: float, blink=False, single=True):
+    def set_encoder_ring(self, index: int, value: float | None = None, blink=False):
         """
         0 = all LEDs off
         1-13 = LEDs 1 (left) - 13 (right) on
@@ -163,8 +159,8 @@ class XTouchMidiAdapter:
         29-127 = ignored
         """
 
-        cc_number = index + self.encoder_cc_start
-        if single:
+        cc_number = index + self.encoder_cc_start + 16
+        if value is not None:
             cc_value = min(max(int(value * 13), 1), 13)
             if blink:
                 cc_value += 13

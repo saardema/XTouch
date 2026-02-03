@@ -1,22 +1,31 @@
 from collections.abc import Callable
 
-from ctrl_mix.core.events import EventEmitter
+from ctrl_mix.core.controller import Control
+from ctrl_mix.core.events import Event, EventEmitter
 from ctrl_mix.xtouch.control import Button, ControlType, Encoder, Fader, XTouchControl
-from ctrl_mix.xtouch.midi import CtrlEvent, XTouchMidiAdapter
-
-
-class ControllerState:
-    def __init__(self) -> None:
-        self.selected_channel: list[int] = [-1, -1]
+from ctrl_mix.xtouch.midi import MidiCtrlEvent, XTouchMidiAdapter
 
 
 class XTouchController(EventEmitter):
-    def __init__(self, callback: Callable[[XTouchControl], None]) -> None:
+    ControlChanged = Event[Callable[[XTouchControl], None]]("ControlChanged")
+
+    ButtonPressed = Event[Callable[[Button], None]]("ButtonPressed")
+    ButtonPressed = Event[Callable[[Button], None]]("ButtonPressed")
+    ButtonReleased = Event[Callable[[Button], None]]("ButtonReleased")
+
+    FaderMoved = Event[Callable[[Fader], None]]("FaderMoved")
+    FaderPressed = Event[Callable[[Fader], None]]("FaderPressed")
+    FaderReleased = Event[Callable[[Fader], None]]("FaderReleased")
+
+    EncoderMoved = Event[Callable[[Encoder], None]]("EncoderMoved")
+    EncoderPressed = Event[Callable[[Encoder], None]]("EncoderPressed")
+    EncoderReleased = Event[Callable[[Encoder], None]]("EncoderReleased")
+
+    def __init__(self) -> None:
         super().__init__()
 
-        self.adapter = XTouchMidiAdapter(self.on_midi_ctrl_event)
-        self.ctrl_change_callback = callback
-        self.state = ControllerState()
+        self.adapter = XTouchMidiAdapter()
+        self.adapter.on(XTouchMidiAdapter.MidiControlChanged, self.on_midi_ctrl_event)
 
         self.init_controls()
 
@@ -34,7 +43,7 @@ class XTouchController(EventEmitter):
             [Encoder(l, i, self.adapter) for i in range(16)]
             for l in range(2)]
         self.channel_encoders = self.encoders[0][:8] + self.encoders[1][:8]
-        self.side_encoders = self.encoders[0][8:16] + self.encoders[1][8:16]
+        self.side_encoders = [self.encoders[0][8:16], self.encoders[1][8:16]]
 
         self.buttons = [
             [Button(l, i, self.adapter) for i in range(32 + 6 + 1)]
@@ -71,46 +80,23 @@ class XTouchController(EventEmitter):
     def on_midi_ctrl_event(
         self,
         ctrl_type: ControlType,
-        event: CtrlEvent,
+        midi_event: MidiCtrlEvent,
         layer: int,
         number: int,
         value: float
     ):
         ctrl = self.get_control(ctrl_type, layer, number)
 
-        if event & CtrlEvent.Press:
-            if event & CtrlEvent.Start:
+        if midi_event & MidiCtrlEvent.PressEvent:
+            if midi_event is MidiCtrlEvent.Pressed:
                 ctrl.on_press()
-                if isinstance(ctrl, Button):
-                    self.on_button_press_start(ctrl)
             else:
                 ctrl.on_release()
         else:
             ctrl.set_value(value)
 
-        self.ctrl_change_callback(ctrl)
+        event_name = ctrl_type.name + str(MidiCtrlEvent(midi_event).name)
+        event = getattr(self, event_name)
+        self.emit(event, ctrl)
 
-    def on_button_press_start(self, btn: Button):
-        if btn in self.select_buttons:
-            ch = self.select_buttons.index(btn)
-            ch = ch if ch < 16 else -1
-            self.select_channel(btn.layer, ch)
-
-    def select_channel(self, layer: int, ch: int):
-        prev = self.state.selected_channel[layer]
-
-        if prev == ch:
-            return
-
-        if prev != -1:
-            self.select_buttons[prev].set_value(False)
-
-        # for btn in self.select_buttons:
-        #     if btn.layer == layer:
-        #         btn.set_value(False)
-
-        if ch != -1:
-            self.select_buttons[ch].set_value(True)
-
-        self.state.selected_channel[layer] = ch
-        self.emit("select_channel", layer, ch)
+        self.emit(self.ControlChanged, ctrl)

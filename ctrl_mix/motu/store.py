@@ -4,6 +4,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from ctrl_mix.core.events import Event, EventEmitter
 from motu.http_client import MotuHttpClient
 from core.mixer import TParam
 
@@ -78,16 +79,19 @@ class OutputBank(ChannelBank):
                 channel.source = input_banks[bank_nr].channels[bank_ch]
 
 
-class MixerStore:
+class MixerStore(EventEmitter):
     """
     Represents state of the Motu audio interface
         - Read-only view into the available inputs and outputs of the audio interface
         - Read/write access to the state of the mixer
     """
 
-    def __init__(self, change_callback: Callable[[dict[str, TParam]]]):
+    StoreInitialized = Event[Callable[[], None]]("StoreInitialized")
+    StoreUpdated = Event[Callable[[dict[str, TParam]], None]]("StoreUpdated")
 
-        self._change_callback = change_callback
+    def __init__(self):
+        super().__init__()
+
         self._client = MotuHttpClient(self.on_long_poll_mix_change)
 
         self.mix_state: dict[str, TParam] = {}
@@ -103,7 +107,7 @@ class MixerStore:
 
     def pull_mix_state(self):
         self.mix_state = self._client.fetch_path("mix")
-        self._change_callback(self.mix_state)
+        self.emit(MixerStore.StoreInitialized)
 
     def get_bank(self, name: str, join_stereo_pairs=True, enabled_only=True) -> dict[int, AudioChannel]:
         channels: dict[int, AudioChannel] = {}
@@ -136,7 +140,7 @@ class MixerStore:
 
     def on_long_poll_mix_change(self, mix_state_change: dict):
         self.mix_state |= mix_state_change
-        self._change_callback(mix_state_change)
+        self.emit(MixerStore.StoreUpdated, mix_state_change)
 
     def _parse_banks(self):
         for i, bank_data in self._fetch("ext/ibank").items():

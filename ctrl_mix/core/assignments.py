@@ -4,7 +4,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 import toml
 
-from ctrl_mix.core.mixer import SendChannel
+from ctrl_mix.core.mixer import Parameter, SendChannel
+from ctrl_mix.motu.channel import MotuMixerChannel
 
 
 if TYPE_CHECKING:
@@ -29,7 +30,7 @@ class SendChannelConfig(ChannelConfig):
 
 @dataclass
 class BusBundle:
-    channel: MixerChannel
+    channel: MotuMixerChannel
     cfg: ChannelConfig
 
 
@@ -56,11 +57,15 @@ class AssignmentManager:
         self._map_dict = {}
         self.load_config()
 
-    def assign_parameter(self, control: XTouchControl, parameter):
+    def assign(self, control: XTouchControl, parameter: MotuParameter | None = None):
+        if parameter is None:
+            self.unassign(control)
+            return
+
         self.control_to_parameter[control] = parameter
         self.parameter_to_control[parameter] = control
 
-    def unassign_control(self, control: XTouchControl):
+    def unassign(self, control: XTouchControl):
         if param := self.control_to_parameter.get(control):
             del self.control_to_parameter[control]
             del self.parameter_to_control[param]
@@ -71,7 +76,7 @@ class AssignmentManager:
     def get_control(self, parameter: MotuParameter):
         return self.parameter_to_control.get(parameter)
 
-    def assign_channel_strip(self, n: int, channel: MixerChannel | None):
+    def assign_channel_strip(self, n: int, channel: MotuMixerChannel | None):
         if channel:
             self.main_mix[n] = BusBundle(channel, ChannelConfig())
         else:
