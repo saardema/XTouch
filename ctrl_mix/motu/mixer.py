@@ -1,77 +1,14 @@
 from __future__ import annotations
+
 from collections.abc import Callable
 from typing import TypeVar
 
 
-from ctrl_mix import clamp, gain_to_norm, norm_to_gain
-from core.mixer import AuxChannel, GroupChannel, InputChannel, MainChannel, Mixer, Parameter, MixerChannel, TParam
+from core.mixer import AuxChannel, GroupChannel, InputChannel, MainChannel, Mixer, MixerChannel, TParam
+from motu.parameter import MotuParameter
 from motu.store import AudioChannel, MixerStore
 
 T = TypeVar("T", int, str, float, bool)
-
-
-class MotuParameter(Parameter):
-    def __init__(
-            self,
-            channel: MotuMixerChannel,
-            path: str,
-            mix_state: dict[str, TParam],
-    ) -> None:
-
-        self.channel = channel
-        self.param_path = path
-        self.path = "/".join([channel.path, path])
-        self.name = path.split("/")[-1]
-
-        param_type, initial = self.parse_config(mix_state)
-        super().__init__(param_type, initial)
-
-    def __repr__(self) -> str:
-        return f"Parameter({self.path} = {self.value})"
-
-    def set_from_state(self, state: dict):
-        if self.path in state:
-            self._set_value(state[self.path], True)
-
-    def is_gain(self):
-        return self.unit == "linear"
-
-    def set_from_controller(self, value: TParam):
-        if isinstance(value, float) and self.unit == "linear":
-            value = norm_to_gain(value)
-
-        self._set_value(value, False)
-
-    def _set_value(self, new_value: TParam, notify: bool):
-        self.value = self.param_type(new_value)
-
-        if self.min_val is not None and self.max_val is not None:
-            if isinstance(self.value, float):
-                self.value = clamp(self.value, self.min_val, self.max_val)
-
-        if notify:
-            self.channel.mixer._on_parameter_set(self)
-
-    def parse_config(self, mix: dict[str, TParam]):
-        cfg_key = self.param_path
-        if cfg_key.endswith("/send"):
-            cfg_key = "matrix/fader"
-        config = str(mix[f"ctrls/{cfg_key}"])
-
-        cfg_type, initial = "", None
-        min_val, max_val, unit = None, None, None
-
-        match config.split(":"):
-            case [cfg_type, initial, min_val, max_val, unit]: ...
-            case [cfg_type, initial]: ...
-
-        ptype = {"bool": float, "int": int}.get(cfg_type, float)
-        initial = ptype(initial) if initial is not None else ptype()
-        self.min_val = ptype(min_val) if min_val is not None else None
-        self.max_val = ptype(max_val) if max_val is not None else None
-        self.unit = unit
-
-        return ptype, initial
 
 
 class MotuMixer(Mixer):
@@ -91,13 +28,13 @@ class MotuMixer(Mixer):
         self.main.setup()
 
         self.channels: dict[int, MotuInput] = {}
-        self._init_bank(self.channels, self.input_bank, MotuInput, self.store.mix_state)
+        self._init_bank(self.channels, self.input_bank, MotuInput)
 
         self.groups: dict[int, MotuGroup] = {}
-        self._init_bank(self.groups, self.group_bank, MotuGroup, self.store.mix_state)
+        self._init_bank(self.groups, self.group_bank, MotuGroup)
 
         self.aux: dict[int, MotuAux] = {}
-        self._init_bank(self.aux, self.aux_bank, MotuAux, self.store.mix_state)
+        self._init_bank(self.aux, self.aux_bank, MotuAux)
 
     def apply_state(self):
         self.main.set_from_state(self.store.mix_state)
@@ -112,7 +49,7 @@ class MotuMixer(Mixer):
             chan.set_from_state(self.store.mix_state)
 
     def set_parameter(self, param: MotuParameter, ctrl_value: float):
-        param._set_value(ctrl_value, False)
+        param.normalized = ctrl_value
         self.store.push_change(param.path, param.value)
 
     def _on_store_changed(self, data: dict[str, TParam]):
@@ -121,9 +58,10 @@ class MotuMixer(Mixer):
 
         for path, val in data.items():
             if param := self.params.get(path):
-                param._set_value(val, True)
+                param.value = val
+                self._on_parameter_set(param)
 
-    def _init_bank(self, target: dict, bank: dict[int, AudioChannel], cls: type[MotuMixerChannel], mix_state: dict):
+    def _init_bank(self, target: dict, bank: dict[int, AudioChannel], cls: type[MotuMixerChannel]):
         for i, chan in bank.items():
             target[i] = cls(self, i, chan.name)
             target[i].setup()
@@ -149,22 +87,26 @@ class MotuMixerChannel(MixerChannel):
     def set_from_state(self, state: dict[str, TParam]):
         for key, path_data in self.param_defs.items():
             if isinstance(path_data, str):
-                param = MotuParameter(self, path_data, state)
-                param.set_from_state(state)
+                param = MotuParameter.create(self, path_data, state)
+
+                if param.path in state:
+                    param.value = state[param.path]
+
                 self.mixer.params[param.path] = param
                 setattr(self, key, param)
 
             elif isinstance(path_data, dict):
                 params: dict[int, MotuParameter] = {}
                 for i, sub_path in path_data.items():
-                    params[i] = MotuParameter(self, sub_path, state)
-                    params[i].set_from_state(state)
+                    params[i] = MotuParameter.create(self, sub_path, state)
+                    if params[i].path in state:
+                        params[i].value = state[params[i].path]
                     self.mixer.params[params[i].path] = params[i]
 
                 setattr(self, key, params)
 
     def __repr__(self) -> str:
-        props = [str(self.channel_number), str(self.fader.value)]
+        props = [str(self.channel_number), str(self.fader._value)]
 
         if self.name:
             props.insert(0, self.name)

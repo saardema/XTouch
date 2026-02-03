@@ -81,7 +81,7 @@ class MotuHttpClient:
         data = self.patch.copy()
         self.patch = {}
         self._patch_request("mix", data)
-        print("SEND     ", data)
+        # print("SEND     ", data)
 
     def _patch_request(self, path: str, data: dict[str, Any]):
         """
@@ -129,14 +129,14 @@ class MotuHttpClient:
                 if len(resp.content):
                     data = resp.json()
 
-                    if len(data) == 1:
-                        print("     RECV", data)
+                    # if len(data) == 1:
+                    #     print("     RECV", data)
 
-                    elif len(data) <= 10:
-                        print("     RECV")
-                        print(json.dumps(data, indent=4))
-                    else:
-                        print("     RECV", "(the whole fucking datastore)")
+                    # elif len(data) <= 10:
+                    #     print("     RECV")
+                    #     print(json.dumps(data, indent=4))
+                    # else:
+                    #     print("     RECV", "(the whole fucking datastore)")
 
                     self.long_poll_callback(data)
 

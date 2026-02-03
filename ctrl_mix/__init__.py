@@ -31,7 +31,7 @@ def norm_to_gain(norm: float) -> float:
     gain -= GAIN_BIAS
 
     # Ensure 0 gain at bottom
-    if gain <= 0.001:
+    if gain <= 0.0001:
         gain = 0.0
 
     return gain

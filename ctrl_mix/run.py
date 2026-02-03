@@ -1,33 +1,44 @@
+import re
 from core.assignments import AssignmentManager
-from ctrl_mix.core.mixer import InputChannel
 from motu.mixer import MotuGroup, MotuInput, MotuMixer, MotuParameter
 from ctrl_mix import gain_to_norm, norm_to_gain
 from xtouch.control import XTouchControl
 from xtouch.controller import XTouchController
 
 
-def normalize_param(param: MotuParameter):
-    if param.is_gain() and isinstance(param.value, float):
-        return gain_to_norm(param.value)
+# def param_value_to_ctrl(param: MotuParameter):
+#     if param.is_gain:
+#         return gain_to_norm(param._value)
 
-    return param.value
+#     return param._value
 
 
-def normalize_ctrl(param: MotuParameter, ctrl: XTouchControl):
-    if param.is_gain() and isinstance(param.value, float):
-        return norm_to_gain(ctrl.value)
+# def ctrl_value_to_param(param: MotuParameter, ctrl: XTouchControl):
+#     if param.is_gain:
+#         return norm_to_gain(ctrl.value)
 
-    return ctrl.value
+#     return ctrl.value
 
 
 def control_updated(ctrl: XTouchControl):
     if param := assignments.get_parameter(ctrl):
-        mixer.set_parameter(param, normalize_ctrl(param, ctrl))
+        mixer.set_parameter(param, ctrl.value)
+        log_change(ctrl, param, ctrl.value)
+
+
+def log_change(ctrl, param, gain):
+    name = ctrl.__class__.__name__
+    p_name = param.param_path
+    if m := re.match(r"matrix/(group|aux)/(\d+)/send", param.param_path):
+        send, n = m.group(1), m.group(2)
+        src = mixer.aux if send == "aux" else mixer.groups
+        p_name = f"{src[int(n)].name} {param.name}"
+    print(f"{name} {ctrl.index} >> {param.channel.name} [{p_name}] = {gain:.3f}")
 
 
 def parameter_updated(param: MotuParameter):
     if control := assignments.get_control(param):
-        controller.set_control(control, normalize_param(param))
+        controller.set_control(control, param.normalized)
 
 
 def setup_strips():
@@ -41,7 +52,7 @@ def setup_strips():
         if isinstance(strip.channel, MotuInput):
             assignments.assign_parameter(encoder, strip.channel.group_sends[0])
 
-        # Bottom button => Mute toggle
+        # Top button => Mute toggle
         assignments.assign_parameter(button, strip.channel.mute)
         button.is_toggle = True
 
@@ -66,7 +77,7 @@ def on_channel_selected(layer: int, ch: int):
         if isinstance(chan, (MotuInput, MotuGroup)):
             param = chan.aux_sends[aux.channel_number]
             assignments.assign_parameter(enc, param)
-            controller.set_control(enc, normalize_param(param))
+            controller.set_control(enc, param.normalized)
 
 
 if __name__ == "__main__":
@@ -74,7 +85,7 @@ if __name__ == "__main__":
     mixer = MotuMixer(parameter_updated)
     assignments = AssignmentManager(mixer)
     avail_aux_ch = [aux.channel for aux in assignments.aux.values() if aux.cfg.send]
-    avail_groups = [aux.channel for aux in assignments.aux.values() if aux.cfg.send]
+    avail_groups = [group.channel for group in assignments.groups.values() if group.cfg.send]
 
     mixer.apply_state()
 
@@ -88,4 +99,4 @@ if __name__ == "__main__":
 
     # Initialize controller value to its parameter value
     for control, parameter in assignments.control_to_parameter.items():
-        controller.set_control(control, normalize_param(parameter))
+        controller.set_control(control, parameter.normalized)

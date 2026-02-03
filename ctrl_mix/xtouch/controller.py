@@ -1,14 +1,13 @@
 from collections.abc import Callable
-from dataclasses import dataclass, field
 
 from ctrl_mix.core.events import EventEmitter
 from ctrl_mix.xtouch.control import Button, ControlType, Encoder, Fader, XTouchControl
 from ctrl_mix.xtouch.midi import CtrlEvent, XTouchMidiAdapter
 
 
-@dataclass
 class ControllerState:
-    selected_channel: list[int] = field(default_factory=lambda: [-1, -1])
+    def __init__(self) -> None:
+        self.selected_channel: list[int] = [-1, -1]
 
 
 class XTouchController(EventEmitter):
@@ -20,6 +19,9 @@ class XTouchController(EventEmitter):
         self.state = ControllerState()
 
         self.init_controls()
+
+        for btn in self.channel_buttons:
+            btn.set_led(False)
 
     def init_controls(self):
         self.faders: list[list[Fader]] = [
@@ -33,8 +35,6 @@ class XTouchController(EventEmitter):
             for l in range(2)]
         self.channel_encoders = self.encoders[0][:8] + self.encoders[1][:8]
         self.side_encoders = self.encoders[0][8:16] + self.encoders[1][8:16]
-        # for enc in self.side_encoders:
-        #     enc.layer = 0
 
         self.buttons = [
             [Button(l, i, self.adapter) for i in range(32 + 6 + 1)]
@@ -51,6 +51,7 @@ class XTouchController(EventEmitter):
 
     def set_control(self, control: XTouchControl, value):
         control.set_value(value)
+        control.sync()
 
     def get_channel_strip(self, channel: int):
         encoder = self.channel_encoders[channel]
@@ -85,7 +86,7 @@ class XTouchController(EventEmitter):
             else:
                 ctrl.on_release()
         else:
-            ctrl.sync_value(value)
+            ctrl.set_value(value)
 
         self.ctrl_change_callback(ctrl)
 
@@ -102,10 +103,14 @@ class XTouchController(EventEmitter):
             return
 
         if prev != -1:
-            self.select_buttons[prev].set_state(False)
+            self.select_buttons[prev].set_value(False)
+
+        # for btn in self.select_buttons:
+        #     if btn.layer == layer:
+        #         btn.set_value(False)
 
         if ch != -1:
-            self.select_buttons[ch].set_state(True)
+            self.select_buttons[ch].set_value(True)
 
         self.state.selected_channel[layer] = ch
         self.emit("select_channel", layer, ch)

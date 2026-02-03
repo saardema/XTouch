@@ -28,20 +28,16 @@ class XTouchControl(Control):
 
         ctrl_type = ControlType[self.__class__.__name__]
         self._id = ctrl_type << 6 | (index << 1) | layer
-        self.value: float = 0.0
+        self.value = 0.0
         self.is_pressed: bool = False
 
     @abstractmethod
     def set_value(self, value: float):
-        """ Sets the value and updates the controller.
-            For state and events coming from outside the controller.
-        """
+        """ Sets the value without updating the controller. """
 
     @abstractmethod
-    def sync_value(self, value: float):
-        """ Sets the value without updating the controller.
-            For events coming from the controller.
-        """
+    def sync(self):
+        """ Updates the controller to reflect the current value """
 
     def on_press(self):
         self.is_pressed = True
@@ -83,21 +79,19 @@ class Encoder(XTouchControl):
         self.adapter.set_encoder_ring(self.index, value, blink, single)
 
     def set_value(self, value: float):
-        self.sync_value(value)
-        self.adapter.set_encoder_value(self.layer, self.index, value)
-
-    def sync_value(self, value: float):
         self.value = value
+
+    def sync(self):
+        self.adapter.set_encoder_value(self.layer, self.index, self.value)
 
 
 class Fader(XTouchControl):
 
     def set_value(self, value: float):
-        self.sync_value(value)
-        self.adapter.set_fader_value(self.layer, self.index, value)
-
-    def sync_value(self, value: float):
         self.value = value
+
+    def sync(self):
+        self.adapter.set_fader_value(self.layer, self.index, self.value)
 
 
 class Button(XTouchControl):
@@ -113,36 +107,27 @@ class Button(XTouchControl):
 
     is_toggle: bool = False
     _led_mode: LEDMode = LEDMode.Off
-    state: bool = False
+    value: bool = False
 
-    def set_state(self, state: bool):
-        self.set_value(1.0 if state else 0.0)
+    def set_value(self, value: bool):
+        self.value = value
 
-    def set_value(self, value: float):
-        self.sync_value(value)
-        self.set_led(self.state)
-
-    def sync_value(self, value: float):
-        self.state = value > 0.5
-        self.value = float(self.state)
+    def sync(self):
+        self.set_led(self.value)
 
     def on_press(self):
         if self.is_toggle:
-            new_value = 1.0
+            self.value = not self.value
 
-            if self.state:
-                new_value = 0.0
-
+            if self.value:
                 # To ensure LED is off when toggled off,
                 # set LED off when pressed to overwrite internal LED toggle
                 self.set_led(False)
 
-            self.sync_value(new_value)
-
     def on_release(self):
         # The LED is always internally toggled off on release
-        # So keep the LED on when state is toggled on
-        if self.state:
+        # So keep the LED on when value is toggled on
+        if self.value:
             self.set_led(True)
 
     def set_led(self, state: bool):

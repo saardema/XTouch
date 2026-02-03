@@ -14,10 +14,10 @@ class Parameter:
     ) -> None:
 
         self.param_type = param_type
-        self.value: TParam = initial if initial is not None else param_type()
+        self._value: TParam = initial if initial is not None else param_type()
 
     def _set_value(self, new_value: TParam):
-        self.value = self.param_type(new_value)
+        self._value = self.param_type(new_value)
 
 
 class ChannelType(Enum):

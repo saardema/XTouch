@@ -31,6 +31,10 @@ src  = "TR-8S Group"
 type = "group"
 
 [[channel_strip]]
+src  = "Analog Inputs"
+type = "group"
+
+[[channel_strip]]
 src = "Minilogue XD"
 
 [[channel_strip]]
