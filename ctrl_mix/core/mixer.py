@@ -10,16 +10,9 @@ class Parameter:
     def __init__(
         self,
         param_type: type[TParam],
-        initial: TParam | None = None,
     ) -> None:
 
         self.param_type = param_type
-        self._value: TParam = initial if initial is not None else param_type()
-
-        super().__init__()
-
-    def _set_value(self, new_value: TParam):
-        self._value = self.param_type(new_value)
 
 
 class ChannelType(Enum):

@@ -89,12 +89,13 @@ class MixerStore(EventEmitter):
     StoreInitialized = Event[Callable[[], None]]("StoreInitialized")
     StoreUpdated = Event[Callable[[dict[str, TParam]], None]]("StoreUpdated")
 
-    def __init__(self):
+    def __init__(self, event_loop):
         super().__init__()
 
-        self._client = MotuHttpClient(self.on_long_poll_mix_change)
+        self._client = MotuHttpClient(self.on_long_poll_mix_change, event_loop)
 
         self.mix_state: dict[str, TParam] = {}
+        self.mix_state_deep: dict[str, Any] = {}
         self.pull_mix_state()
         self._client.start_long_poll()
 
@@ -107,6 +108,14 @@ class MixerStore(EventEmitter):
 
     def pull_mix_state(self):
         self.mix_state = self._client.fetch_path("mix")
+
+        # The API has both a dict and str value for "ctrls/reverb"
+        # so rename one of them to avoid a conflict
+        if "ctrls/reverb" in self.mix_state:
+            self.mix_state["ctrls/reverbMeterStripOrder"] = self.mix_state["ctrls/reverb"]
+            del self.mix_state["ctrls/reverb"]
+
+        self.mix_state_deep = self.to_deep_dict(self.mix_state)
         self.emit(MixerStore.StoreInitialized)
 
     def get_bank(self, name: str, join_stereo_pairs=True, enabled_only=True) -> dict[int, AudioChannel]:
@@ -132,9 +141,6 @@ class MixerStore(EventEmitter):
         return channels
 
     def push_change(self, path: str, value: TParam):
-        if self.mix_state[path] == value:
-            return
-
         self.mix_state[path] = value
         self._client.push_change(path, value)
 
@@ -170,15 +176,9 @@ class MixerStore(EventEmitter):
     def _fetch(self, path: str):
         flat_dict = self._client.fetch_path(path)
 
-        # The API has both a dict and str value for "ctrls/reverb"
-        # so rename one of them to avoid a conflict
-        if "ctrls/reverb" in flat_dict:
-            flat_dict["ctrls/reverbMeterStripOrder"] = flat_dict["ctrls/reverb"]
-            del flat_dict["ctrls/reverb"]
+        return self.to_deep_dict(flat_dict)
 
-        return self._to_deep_dict(flat_dict)
-
-    def _to_deep_dict(self, flat_source: dict) -> dict[str, Any]:
+    def to_deep_dict(self, flat_source: dict) -> dict[str, Any]:
         store_dict = {}
 
         for path, value in flat_source.items():

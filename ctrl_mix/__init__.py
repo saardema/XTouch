@@ -1,8 +1,24 @@
-import math
+from math import log10
 
 DB_MIN: float = -40.0  # Floor
 DB_MAX: float = 12.0  # Gain of 4
 GAIN_BIAS: float = 0.01  # Assigns more resolution around 0dB
+
+
+def lin_log(v, min_log=20.0, max_log=2e4):
+    min_log = log10(min_log)
+    max_log = log10(max_log)
+    log_v = min_log + v * (max_log - min_log)
+
+    return 10 ** log_v
+
+
+def log_lin(v, min_log=20.0, max_log=2e4):
+    min_log = log10(min_log)
+    max_log = log10(max_log)
+    log_v = log10(v)
+
+    return (log_v - min_log) / (max_log - min_log)
 
 
 def gain_to_norm(gain: float) -> float:
@@ -12,7 +28,7 @@ def gain_to_norm(gain: float) -> float:
     gain += GAIN_BIAS
 
     # Convert linear gain factor to dB
-    currentDb = 20.0 * math.log10(gain)
+    currentDb = 20.0 * log10(gain)
 
     # Map dB range to 0..1 range
     norm: float = (currentDb - DB_MIN) / (DB_MAX - DB_MIN)
@@ -37,15 +53,15 @@ def norm_to_gain(norm: float) -> float:
     return gain
 
 
-def remap(t, a_min, a_max, b_min, b_max, clamp=True):
-    a_range, b_range = a_max - a_min, b_max - b_min
-    remapped = (t - a_min) * b_range / a_range + b_min
-
-    if clamp:
-        return min(max(remapped, b_min), b_max)
-
-    return remapped
-
-
 def clamp(v, low, high):
     return min(max(v, low), high)
+
+
+def remap(x, from_min, from_max, to_min, to_max, clamped=True):
+    from_range, to_range = from_max - from_min, to_max - to_min
+    remapped = (x - from_min) * to_range / from_range + to_min
+
+    if clamped:
+        return clamp(remapped, to_min, to_max)
+
+    return remapped

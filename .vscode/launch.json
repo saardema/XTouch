@@ -4,7 +4,7 @@
 			"name": "Python Debugger: Module",
 			"type": "debugpy",
 			"request": "launch",
-			"program": "ctrl_mix/run.py",
+			"program": "ctrl_mix/app.py",
 			"autoReload": {
 				"enable": true
 			}

@@ -16,10 +16,10 @@ T = TypeVar("T", int, str, float, bool)
 class MotuMixer(Mixer, EventEmitter):
     ParameterSetFromMixer = Event[Callable[[MotuParameter], None]]("ParameterSetFromMixer")
 
-    def __init__(self) -> None:
+    def __init__(self, event_loop) -> None:
         self.params: dict[str, MotuParameter] = {}
 
-        self.store = MixerStore()
+        self.store = MixerStore(event_loop)
         self.store.on(MixerStore.StoreUpdated, self._on_store_updated)
 
         self.input_bank = self.store.get_bank("Mix In")
@@ -29,7 +29,6 @@ class MotuMixer(Mixer, EventEmitter):
         super().__init__(len(self.input_bank), len(self.group_bank), len(self.aux_bank))
 
         self.main = MotuMain(self, 0, "Main")
-        self.main.setup()
 
         self.channels: dict[int, MotuInput] = {}
         self._init_bank(self.channels, self.input_bank, MotuInput)
@@ -43,16 +42,16 @@ class MotuMixer(Mixer, EventEmitter):
         self.init_params()
 
     def init_params(self):
-        self.main.init_params(self.store.mix_state)
+        self.main.init_params(self.store.mix_state_deep["main"]["0"])
 
-        for chan in self.channels.values():
-            chan.init_params(self.store.mix_state)
+        for i, chan in self.channels.items():
+            chan.init_params(self.store.mix_state_deep["chan"][str(i)])
 
-        for chan in self.groups.values():
-            chan.init_params(self.store.mix_state)
+        for i, chan in self.groups.items():
+            chan.init_params(self.store.mix_state_deep["group"][str(i)])
 
-        for chan in self.aux.values():
-            chan.init_params(self.store.mix_state)
+        for i, chan in self.aux.items():
+            chan.init_params(self.store.mix_state_deep["aux"][str(i)])
 
     def sync_to_store(self):
         for path, param in self.params.items():
@@ -61,15 +60,14 @@ class MotuMixer(Mixer, EventEmitter):
                 self.emit(self.ParameterSetFromMixer, param)
 
     def set_parameter(self, param: MotuParameter, ctrl_value: float):
-        param.normalized = ctrl_value
-        self.store.push_change(param.path, param.value)
+        if param.normalized != ctrl_value:
+            param.normalized = ctrl_value
+            self.store.push_change(param.path, param.value)
 
     def _on_store_updated(self, change: dict[str, TParam]):
         for path in change:
             if param := self.params.get(path):
-                if param.value != change[path]:
-                    param.value = change[path]
-                    self.emit(self.ParameterSetFromMixer, param)
+                self.emit(self.ParameterSetFromMixer, param)
 
     def _on_parameter_set(self, param: MotuParameter):
         ...
@@ -77,4 +75,3 @@ class MotuMixer(Mixer, EventEmitter):
     def _init_bank(self, target: dict, bank: dict[int, AudioChannel], cls: type[MotuMixerChannel]):
         for i, chan in bank.items():
             target[i] = cls(self, i, chan.name)
-            target[i].setup()

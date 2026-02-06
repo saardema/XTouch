@@ -4,12 +4,12 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 import toml
 
-from ctrl_mix.core.mixer import Parameter, SendChannel
-from ctrl_mix.motu.channel import MotuMixerChannel
+from ctrl_mix.core.mixer import SendChannel
+from ctrl_mix.motu.channel import MotuAux, MotuAuxSendCapable, MotuGroup, MotuInput, MotuMixerChannel
+from ctrl_mix.motu.mixer import MotuMixer
 
 
 if TYPE_CHECKING:
-    from ctrl_mix.core.mixer import MixerChannel
     from ctrl_mix.motu.mixer import MotuParameter
     from ctrl_mix.xtouch.control import XTouchControl
 
@@ -25,7 +25,7 @@ class ChannelConfig:
 class SendChannelConfig(ChannelConfig):
     def __init__(self, data: dict[str, bool] = {}) -> None:
         super().__init__(data)
-        self.send = data.get("send", True)
+        self.send_enabled = data.get("send", True)
 
 
 @dataclass
@@ -41,12 +41,16 @@ class SendBusBundle(BusBundle):
 
 
 class AssignmentManager:
-    def __init__(self, mixer) -> None:
+    def __init__(self, mixer: MotuMixer) -> None:
         self.mixer = mixer
 
-        self.inputs: dict[int, BusBundle] = {}
-        self.aux: dict[int, SendBusBundle] = {}
-        self.groups: dict[int, SendBusBundle] = {}
+        self.inputs: dict[str, BusBundle] = {}
+        self.aux: dict[str, SendBusBundle] = {}
+        self.groups: dict[str, SendBusBundle] = {}
+
+        self.bundles: dict[MotuMixerChannel, BusBundle] = {}
+        self.sendable_aux: dict[int, MotuAux] = {}
+        self.sendable_groups: dict[int, MotuGroup] = {}
 
         self.main_mix: dict[int, BusBundle] = {}
 
@@ -56,6 +60,9 @@ class AssignmentManager:
         self.config = {}
         self._map_dict = {}
         self.load_config()
+
+    def get_config(self, chan: MotuMixerChannel):
+        return self.bundles[chan].cfg
 
     def assign(self, control: XTouchControl, parameter: MotuParameter | None = None):
         if parameter is None:
@@ -77,8 +84,9 @@ class AssignmentManager:
         return self.parameter_to_control.get(parameter)
 
     def assign_channel_strip(self, n: int, channel: MotuMixerChannel | None):
-        if channel:
+        if isinstance(channel, MotuAuxSendCapable):
             self.main_mix[n] = BusBundle(channel, ChannelConfig())
+            self.bundles[channel] = self.main_mix[n]
         else:
             del self.main_mix[n]
 
@@ -122,17 +130,27 @@ class AssignmentManager:
     def _parse_config(self):
         self.inputs, self.aux, self.groups = {}, {}, {}
 
+        chan: MotuInput
         for chan in self.mixer.channels.values():
             data = self.config["mixer"]["inputs"].get(chan.name, {})
-            strip = BusBundle(chan, ChannelConfig(data))
-            self.inputs[chan.name] = strip
+            bundle = BusBundle(chan, ChannelConfig(data))
+            self.inputs[chan.name] = bundle
+            self.bundles[chan] = bundle
 
-        for chan in self.mixer.groups.values():
-            data = self.config["mixer"]["groups"].get(chan.name, {})
-            strip = SendBusBundle(chan, SendChannelConfig(data))
-            self.groups[chan.name] = strip
+        group: MotuGroup
+        for group in self.mixer.groups.values():
+            data = self.config["mixer"]["groups"].get(group.name, {})
+            bundle = SendBusBundle(group, SendChannelConfig(data))
+            self.groups[group.name] = bundle
+            if bundle.cfg.send_enabled:
+                self.sendable_groups[group.channel_number] = group
+            self.bundles[group] = bundle
 
-        for chan in self.mixer.aux.values():
-            data = self.config["mixer"]["aux"].get(chan.name, {})
-            strip = SendBusBundle(chan, SendChannelConfig(data))
-            self.aux[chan.name] = strip
+        aux: MotuAux
+        for aux in self.mixer.aux.values():
+            data = self.config["mixer"]["aux"].get(aux.name, {})
+            bundle = SendBusBundle(aux, SendChannelConfig(data))
+            self.aux[aux.name] = bundle
+            if bundle.cfg.send_enabled:
+                self.sendable_aux[aux.channel_number] = aux
+            self.bundles[aux] = bundle

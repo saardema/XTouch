@@ -4,7 +4,7 @@ from enum import Flag, auto
 import mido
 
 from ctrl_mix.core.events import Event, EventEmitter
-from ctrl_mix.xtouch.control import ControlType
+from ctrl_mix.xtouch.control import ControlSubType, ControlType
 
 
 DEVICE_NAME = "X-TOUCH COMPACT"
@@ -76,20 +76,20 @@ class MidiCtrlEvent(Flag):
 class XTouchMidiAdapter(EventEmitter):
 
     cc_map = [
-        (ControlType.Fader, MidiCtrlEvent.Moved, range(9), "main", {"channel": 7}),
-        (ControlType.Encoder, MidiCtrlEvent.Moved, range(10, 26), "side", {"channel": 17}),
-        (ControlType.Fader, MidiCtrlEvent.PressEvent, range(100, 110), "main", {"channel": 107}),
+        (ControlType.Fader, MidiCtrlEvent.Moved, range(9), ControlSubType.Main, {ControlSubType.Channel: 7}),
+        (ControlType.Encoder, MidiCtrlEvent.Moved, range(10, 26), ControlSubType.Side, {ControlSubType.Channel: 17}),
+        (ControlType.Fader, MidiCtrlEvent.PressEvent, range(100, 110), ControlSubType.Main, {ControlSubType.Channel: 107}),
     ]
 
     note_map = [
-        (ControlType.Button, MidiCtrlEvent.PressEvent, range(55), "transport", {"channel": 31, "main": 32}),
-        (ControlType.Encoder, MidiCtrlEvent.PressEvent, range(55, 71), "side", {"channel": 62}),
+        (ControlType.Button, MidiCtrlEvent.PressEvent, range(55), ControlSubType.Transport, {ControlSubType.Channel: 31, ControlSubType.Main: 32}),
+        (ControlType.Encoder, MidiCtrlEvent.PressEvent, range(55, 71), ControlSubType.Side, {ControlSubType.Channel: 62}),
     ]
 
     global_channel: int = 2
     encoder_cc_start: int = cc_map[1][2].start
 
-    MidiControlChanged = Event[Callable[[ControlType, MidiCtrlEvent, int, int, float], None]]("MidiControlChanged")
+    MidiControlChanged = Event[Callable[[ControlType, ControlSubType, MidiCtrlEvent, int, int, float], None]]("MidiControlChanged")
 
     def __init__(self) -> None:
         super().__init__()
@@ -120,7 +120,7 @@ class XTouchMidiAdapter(EventEmitter):
             else:
                 event |= MidiCtrlEvent.EventEnd
 
-        self.emit(XTouchMidiAdapter.MidiControlChanged, ctrl, event, layer, idx, normalized)
+        self.emit(XTouchMidiAdapter.MidiControlChanged, ctrl, sub_type, event, layer, idx, normalized)
 
     def set_fader_value(self, layer: int, index: int, value: float):
         cc_number = index
@@ -160,12 +160,14 @@ class XTouchMidiAdapter(EventEmitter):
         """
 
         cc_number = index + self.encoder_cc_start + 16
-        if value is not None:
+        if value is None:
+            cc_value = 28 if blink else 27
+        elif value == 0:
+            cc_value = 0
+        else:
             cc_value = min(max(int(value * 13), 1), 13)
             if blink:
                 cc_value += 13
-        else:
-            cc_value = 28 if blink else 27
 
         self.client.send_cc(cc_number, cc_value, self.global_channel)
 

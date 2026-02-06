@@ -1,11 +1,32 @@
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
+from curses.ascii import isdigit
+from dataclasses import dataclass
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
-from ctrl_mix.core.mixer import AuxChannel, GroupChannel, InputChannel, MainChannel, MixerChannel, TParam
+from ctrl_mix.core.mixer import AuxChannel, GroupChannel, InputChannel, MainChannel, Mixer, MixerChannel, TParam
 from ctrl_mix.motu.parameter import MotuParameter
-
 if TYPE_CHECKING:
     from ctrl_mix.motu.mixer import MotuMixer
+
+
+class Equalizer:
+    class Band:
+        enable: MotuParameter
+        freq: MotuParameter
+        gain: MotuParameter
+        bw: MotuParameter
+        mode: MotuParameter
+
+    def __init__(self) -> None:
+        self.lowshelf = Equalizer.Band()
+        self.mid1 = Equalizer.Band()
+        self.mid2 = Equalizer.Band()
+        self.highshelf = Equalizer.Band()
+
+    def get_bands(self):
+        return [self.lowshelf, self.mid1, self.mid2, self.highshelf]
 
 
 class MotuMixerChannel(MixerChannel):
@@ -13,48 +34,37 @@ class MotuMixerChannel(MixerChannel):
     fader: MotuParameter
     mute: MotuParameter
 
-    def setup(self):
+    def __init__(self, mixer: Mixer, channel_number: int, name: str = ""):
+        super().__init__(mixer, channel_number, name)
+
         self.path = self.get_path()
-        self.params: dict[str, MotuParameter | dict[str, MotuParameter]] = {}
-        self.param_defs: dict[str, str | dict[int, str]] = {}
-        self.param_defs["fader"] = "matrix/fader"
-        self.param_defs["mute"] = "matrix/mute"
+        self.params = {}
+        self.eq = Equalizer()
 
     def get_path(self):
         return f"{self.channel_type.value}/{self.channel_number}"
 
-    def init_params(self, state: dict[str, TParam]):
-        for attr, path_data in self.param_defs.items():
-            if isinstance(path_data, str):
-                param = MotuParameter.create(self, path_data, state)
+    def create_param(self, path: str):
+        mix = self.mixer.store.mix_state
+        param = MotuParameter.create(self, self.path, path, mix)
+        self.mixer.params[f"{self.path}/{path}"] = param
 
-                self.params[param.param_path] = param
-                self.mixer.params[param.path] = param
-                setattr(self, attr, param)
+        return param
 
-            elif isinstance(path_data, dict):
-                params: dict[int, MotuParameter] = {}
+    def init_params(self, state: dict[str, Any]):
 
-                for i, sub_path in path_data.items():
-                    params[i] = MotuParameter.create(self, sub_path, state)
-                    self.params[params[i].param_path] = params[i]
-                    self.mixer.params[params[i].path] = params[i]
+        self.fader = self.create_param("matrix/fader")
+        self.mute = self.create_param("matrix/mute")
 
-                setattr(self, attr, params)
-
-    def set_from_state(self, state: dict[str, Any]):
-        for param_data in self.params.values():
-            if isinstance(param_data, MotuParameter):
-                if param_data.path in state:
-                    param_data.value = state[param_data.path]
-
-            elif isinstance(param_data, dict):
-                for param in param_data.values():
-                    if param.path in state:
-                        param.value = state[param.path]
+        for band_key, attrs in state["eq"].items():
+            band = getattr(self.eq, band_key)
+            for attr in attrs:
+                param = self.create_param(f"eq/{band_key}/{attr}")
+                setattr(band, attr, param)
 
     def __repr__(self) -> str:
-        props = [str(self.channel_number), str(self.fader._value)]
+        props = [str(self.channel_number), str(self.fader.value)]
+        props = [str(self.channel_number)]
 
         if self.name:
             props.insert(0, self.name)
@@ -65,46 +75,54 @@ class MotuMixerChannel(MixerChannel):
 class MotuMainSendCapable(MotuMixerChannel):
     main_send: MotuParameter
 
-    def setup(self):
-        super().setup()
-        self.param_defs["main_send"] = "matrix/main/0/send"
+    def init_params(self, state: dict[str, Any]):
+        super().init_params(state)
+
+        self.main_send = self.create_param("matrix/main/0/send")
 
 
 class MotuGroupSendCapable(MotuMixerChannel):
-    group_sends: dict[int, MotuParameter]
+    group_sends: dict[int, dict[str, MotuParameter]]
 
-    def setup(self):
-        super().setup()
-        self.param_defs["group_sends"] = {
-            i: f"matrix/group/{i}/send"
-            for i in self.mixer.group_bank
-        }
+    def init_params(self, state: dict[str, Any]):
+        super().init_params(state)
+
+        self.group_sends = {}
+        for idx in state["matrix"]["group"]:
+            self.group_sends[int(idx)] = {
+                "send": self.create_param(f"matrix/group/{idx}/send"),
+                "pan": self.create_param(f"matrix/group/{idx}/pan")
+            }
 
 
 class MotuAuxSendCapable(MotuMixerChannel):
-    aux_sends: dict[int, MotuParameter]
+    aux_sends: dict[int, dict[str, MotuParameter]]
 
-    def setup(self):
-        super().setup()
-        self.param_defs["aux_sends"] = {
-            i: f"matrix/aux/{i}/send"
-            for i in self.mixer.aux_bank
-        }
+    def init_params(self, state: dict[str, Any]):
+        super().init_params(state)
+
+        self.aux_sends = {}
+        for idx in state["matrix"]["aux"]:
+            self.aux_sends[int(idx)] = {
+                "send": self.create_param(f"matrix/aux/{idx}/send"),
+                "pan": self.create_param(f"matrix/aux/{idx}/pan")
+            }
 
 
 class MotuSendReceiver(MotuMixerChannel):
     prefader: MotuParameter
 
-    def setup(self):
-        super().setup()
-        self.param_defs["prefader"] = "matrix/prefader"
+    def init_params(self, state: dict[str, Any]):
+        super().init_params(state)
+
+        self.prefader = self.create_param("matrix/prefader")
 
 
 class MotuMain(MotuMixerChannel, MainChannel):
     ...
 
 
-class MotuInput(MotuMainSendCapable, MotuGroupSendCapable, MotuAuxSendCapable, InputChannel):
+class MotuInput(MotuMainSendCapable, MotuAuxSendCapable, MotuGroupSendCapable, InputChannel):
     ...
 
 

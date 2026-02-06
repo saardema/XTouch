@@ -22,13 +22,27 @@ def setup_main_mix():
     engine.mixer.main.fader.max_val = 1.0
 
 
-def on_channel_unselected(layer: int, prev_ch: int):
-    unassign_side_encoders(layer)
-
-
 def on_channel_selected(layer: int, ch: int):
     assign_side_encoder_as_aux(layer, ch)
     assign_channel_encoders_as_group_sends(layer, ch)
+
+
+def on_channel_unselected(layer: int, prev_ch: int):
+    unassign_side_encoders(layer)
+    restore_channel_encoders(layer)
+
+
+def restore_channel_encoders(layer):
+    pairs = list(zip(
+        engine.assignments.main_mix.values(),
+        engine.controller.channel_encoders))
+
+    pairs = pairs[:8] if layer == 0 else pairs[8:]
+
+    for i, strip in engine.assignments.main_mix.items():
+        encoder = engine.controller.channel_encoders[i]
+        if isinstance(strip.channel, (MotuInput, MotuGroup)):
+            engine.assign(encoder, strip.channel.main_send)
 
 
 def unassign_side_encoders(layer: int):
@@ -64,12 +78,11 @@ def assign_channel_encoders_as_group_sends(layer: int, ch: int):
 
 if __name__ == "__main__":
     engine = Engine()
-    avail_aux_ch = [aux.channel for aux in engine.assignments.aux.values() if aux.cfg.send]
-    avail_groups = [group.channel for group in engine.assignments.groups.values() if group.cfg.send]
+    avail_aux_ch = [aux.channel for aux in engine.assignments.aux.values() if aux.cfg.send_enabled]
+    avail_groups = [group.channel for group in engine.assignments.groups.values() if group.cfg.send_enabled]
 
+    engine.mixer.sync_to_store()
     setup_main_mix()
 
     engine.on(engine.ChannelUnselected, on_channel_unselected)
     engine.on(engine.ChannelSelected, on_channel_selected)
-
-    engine.mixer.sync_to_store()

@@ -14,7 +14,7 @@ DEVICE_ID = "0001f2fffe00be6a"
 
 
 class MotuHttpClient:
-    def __init__(self, long_poll_callback: Callable[[dict], None], request_rate=0.025) -> None:
+    def __init__(self, long_poll_callback: Callable[[dict], None], event_loop, request_rate=0.025) -> None:
         self.client_id = randint(0, (1 << 32) - 1)
         self.api_url_base = f'http://localhost:1280/{DEVICE_ID}/datastore'
         self.request_rate = request_rate
@@ -24,7 +24,8 @@ class MotuHttpClient:
         self.push_scheduled = False
         self.etag = 0
 
-        self.req_loop = asyncio.new_event_loop()
+        # self.req_loop = asyncio.new_event_loop()
+        self.req_loop = event_loop
         self.req_thread = threading.Thread(target=self._run_req_event_loop)
         self.req_thread.start()
 
@@ -100,7 +101,7 @@ class MotuHttpClient:
         body = {'json': json.dumps(data)}
 
         # Bump state version to sync with Motu Api
-        # self.etag += 1
+        self.etag += 1
 
         requests.patch(url, body)
 
@@ -129,14 +130,14 @@ class MotuHttpClient:
                 if len(resp.content):
                     data = resp.json()
 
-                    # if len(data) == 1:
-                    #     print("     RECV", data)
+                    if len(data) == 1:
+                        print("     RECV", data)
 
-                    # elif len(data) <= 10:
-                    #     print("     RECV")
-                    #     print(json.dumps(data, indent=4))
-                    # else:
-                    #     print("     RECV", "(the whole fucking datastore)")
+                    elif len(data) <= 10:
+                        print("     RECV")
+                        print(json.dumps(data, indent=4))
+                    else:
+                        print("     RECV", "(the whole fucking datastore)")
 
                     self.long_poll_callback(data)
 
