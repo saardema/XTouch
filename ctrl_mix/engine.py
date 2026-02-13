@@ -2,8 +2,10 @@ import asyncio
 from collections.abc import Callable, Sequence
 from enum import Enum
 import re
+
 from core.events import Event, EventEmitter
 from ctrl_mix.core.assignments import AssignmentManager
+from ctrl_mix.core.mixer import Parameter
 from ctrl_mix.motu.channel import MotuAuxSendCapable, MotuGroupSendCapable
 from ctrl_mix.motu.mixer import MotuMixer
 from ctrl_mix.motu.parameter import MotuParameter
@@ -52,6 +54,7 @@ class ControllerState:
         self.selected_channel: list[int] = [-1, -1]
         self.chan_cfg_mode: ChannelConfigMode = ChannelConfigMode.Off
         self.layer: int = 0
+        self._last_expression_value: int = 0
 
 
 class Engine(EventEmitter):
@@ -72,35 +75,26 @@ class Engine(EventEmitter):
         self.assignments = AssignmentManager(self.mixer)
 
         self.state = ControllerState()
+        adapter = self.controller.adapter
 
-        self.mixer.on(MotuMixer.ParameterSetFromMixer, self.on_parameter_updated)
-        self.controller.on(XTouchController.ButtonPressed, self.on_button_press_start)
-        self.controller.on(XTouchController.ControlChanged, self.on_control_updated)
-
-    def on_button_press_start(self, btn: Button, sub_type: ControlSubType):
-        if btn in self.controller.select_buttons:
-            ch = self.controller.select_buttons.index(btn)
-            ch = ch if ch < 16 else -1
-            self.select_channel(btn.layer, ch)
-
-        elif sub_type is ControlSubType.Transport:
-            idx = self.controller.transport_buttons.index(btn)
-            if idx in ChannelConfigMode:
-                self.set_chan_cfg_mode(ChannelConfigMode(idx))
+        self.mixer.on(MotuMixer.ParameterSetFromMixer, self._on_parameter_updated)
+        self.controller.on(XTouchController.ButtonPressed, self._on_button_press_start)
+        self.controller.on(XTouchController.ControlChanged, self._on_control_updated)
+        adapter.on(adapter.ExpressionChanged, self._on_expression_changed)
 
     def set_chan_cfg_mode(self, mode: ChannelConfigMode):
         prev = self.state.chan_cfg_mode
         self.state.chan_cfg_mode = mode
 
+        for m in ChannelConfigMode:
+            if m != ChannelConfigMode.Off:
+                idx = self.state.layer * 6 + m.value
+                self.controller.transport_buttons[idx].set_value(mode == m)
+
         if prev != mode:
-            self.controller.transport_buttons[prev.value].set_value(False)
+            self.emit(Engine.ChannelConfigModeChanged, prev)
 
-        if mode.value != ChannelConfigMode.Off:
-            self.controller.transport_buttons[mode.value].set_value(True)
-
-        self.emit(Engine.ChannelConfigModeChanged, prev)
-
-    def assign(self, control: XTouchControl, param: MotuParameter | None = None, sync=True):
+    def assign(self, control: XTouchControl, param: Parameter | None = None, sync=True):
         self.assignments.assign(control, param)
 
         if param and isinstance(control, Encoder):
@@ -113,10 +107,11 @@ class Engine(EventEmitter):
                 control.set_mode(Encoder.Mode.Spread, sync)
             else:
                 control.set_mode(Encoder.Mode.Fan, sync)
+        if sync:
+            control.is_enabled = bool(param)
 
-        control.is_enabled = bool(param)
-
-        control.set_value(param.normalized if param else 0, sync)
+        sync_value = sync and control.layer == self.state.layer
+        control.set_value(param.normalized if param else 0.0, sync_value)
 
     def select_channel(self, layer: int, ch: int):
         # Select inactive channel > ignore
@@ -147,22 +142,6 @@ class Engine(EventEmitter):
 
         self.emit(Engine.ChannelSelected, layer, ch)
 
-    def on_control_updated(self, ctrl: XTouchControl, sub_type: ControlSubType):
-        if param := self.assignments.get_parameter(ctrl):
-            self.set_layer(ctrl.layer)
-
-            self.mixer.set_parameter(param, ctrl.value)
-            log_change(ctrl, param, self.mixer)
-
-    def on_parameter_updated(self, param: MotuParameter):
-        if control := self.assignments.get_control(param):
-            self.controller.set_control(control, param.normalized)
-
-    def set_layer(self, layer: int):
-        if self.state.layer != layer:
-            self.state.layer = layer
-            self.emit(Engine.LayerChanged, layer)
-
     def assign_encoders(self, channel: bool, params: Sequence[MotuParameter | None], layer: int | None = None):
         encs = self.controller.channel_encoders
         if not channel:
@@ -176,10 +155,11 @@ class Engine(EventEmitter):
             param = params[i] if i < len(params) else None
             self.assign(enc, param)
 
-    def get_main_aux_sends(self):
+    def get_main_out_channels(self):
         return [
             chan.fader for chan in self.mixer.aux.values()
-            if chan.name in ("Aux JBL", "Aux Sub", "Aux Phones")]
+            if chan.name in ("Aux JBL", "Aux Sub")
+        ] + [self.mixer.monitor.fader]
 
     def get_aux_sends(self, chan: MotuAuxSendCapable):
         return [chan.aux_sends[a]["send"] for a in self.assignments.sendable_aux]
@@ -188,3 +168,43 @@ class Engine(EventEmitter):
         return [
             send["send"] for nr, send in chan.group_sends.items()
             if nr in self.assignments.sendable_groups]
+
+    def _set_layer(self, layer: int):
+        if self.state.layer != layer:
+            print("Switched to layer", ["A", "B"][layer])
+            self.state.layer = layer
+            self.select_channel(layer, self.state.selected_channel[layer])
+            self.set_chan_cfg_mode(self.state.chan_cfg_mode)
+            self.emit(Engine.LayerChanged, layer)
+
+    def _on_button_press_start(self, btn: Button, sub_type: ControlSubType):
+        if btn in self.controller.select_buttons:
+            ch = self.controller.select_buttons.index(btn)
+            ch = ch if ch < 16 else -1
+            self.select_channel(btn.layer, ch)
+
+        elif sub_type is ControlSubType.Transport:
+            idx = self.controller.transport_buttons.index(btn) % 6
+            if idx in ChannelConfigMode:
+                self.set_chan_cfg_mode(ChannelConfigMode(idx))
+
+    def _on_expression_changed(self, value: int):
+        f0, f1 = self.controller.main_faders
+
+        if f0.is_pressed or f1.is_pressed:
+            return
+
+        e0, e1 = f0.value * 6.1, f1.value * 6.1
+        d0, d1 = abs(e0 - value), abs(e1 - value)
+        self._set_layer(int(d0 > d1))
+
+    def _on_control_updated(self, ctrl: XTouchControl, sub_type: ControlSubType):
+        self._set_layer(ctrl.layer)
+
+        if param := self.assignments.get_parameter(ctrl):
+            self.mixer.set_parameter(param, ctrl.value)
+            log_change(ctrl, param, self.mixer)
+
+    def _on_parameter_updated(self, param: Parameter):
+        if control := self.assignments.get_control(param):
+            self.controller.set_control(control, param.normalized)

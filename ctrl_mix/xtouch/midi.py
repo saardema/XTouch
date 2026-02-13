@@ -1,4 +1,3 @@
-from __future__ import annotations
 from collections.abc import Callable
 from enum import Flag, auto
 import mido
@@ -88,8 +87,10 @@ class XTouchMidiAdapter(EventEmitter):
 
     global_channel: int = 2
     encoder_cc_start: int = cc_map[1][2].start
+    expression_cc: int = 63
 
     MidiControlChanged = Event[Callable[[ControlType, ControlSubType, MidiCtrlEvent, int, int, float], None]]("MidiControlChanged")
+    ExpressionChanged = Event[Callable[[int], None]]("ExpressionChanged")
 
     def __init__(self) -> None:
         super().__init__()
@@ -99,6 +100,11 @@ class XTouchMidiAdapter(EventEmitter):
     def on_control_changed(self, is_cc: bool, layer: int, number: int, value: int):
         normalized = value / 127
         idx = number
+
+        if is_cc and number == self.expression_cc:
+            self.emit(XTouchMidiAdapter.ExpressionChanged, value)
+
+            return
 
         lookup = self.cc_map if is_cc else self.note_map
         for ctrl, event, sequence, default, sub_types in lookup:
@@ -110,6 +116,7 @@ class XTouchMidiAdapter(EventEmitter):
                         sub_type = st
                         break
                 break
+
         else:
             print(f"Unhandled CC: chan {layer}, CC {number}, value {value}")
             return

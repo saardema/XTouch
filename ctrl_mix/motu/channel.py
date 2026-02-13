@@ -1,12 +1,8 @@
-from __future__ import annotations
-
-from abc import ABC, abstractmethod
-from curses.ascii import isdigit
-from dataclasses import dataclass
-from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
-from ctrl_mix.core.mixer import AuxChannel, GroupChannel, InputChannel, MainChannel, Mixer, MixerChannel, TParam
 from ctrl_mix.motu.parameter import MotuParameter
+from ctrl_mix.core.mixer import AuxChannel, GroupChannel, InputChannel, \
+    MainChannel, Mixer, MixerChannel, MonitorChannel
+
 if TYPE_CHECKING:
     from ctrl_mix.motu.mixer import MotuMixer
 
@@ -56,7 +52,7 @@ class MotuMixerChannel(MixerChannel):
         self.fader = self.create_param("matrix/fader")
         self.mute = self.create_param("matrix/mute")
 
-        for band_key, attrs in state["eq"].items():
+        for band_key, attrs in state.get("eq", {}).items():
             band = getattr(self.eq, band_key)
             for attr in attrs:
                 param = self.create_param(f"eq/{band_key}/{attr}")
@@ -116,6 +112,10 @@ class MotuSendReceiver(MotuMixerChannel):
         super().init_params(state)
 
         self.prefader = self.create_param("matrix/prefader")
+
+
+class MotuMonitor(MotuMixerChannel, MonitorChannel):
+    ...
 
 
 class MotuMain(MotuMixerChannel, MainChannel):

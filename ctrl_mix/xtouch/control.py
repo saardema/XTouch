@@ -1,14 +1,8 @@
-from __future__ import annotations
 from abc import ABC, abstractmethod
 from enum import Enum, IntEnum, auto
 import time
-from typing import TYPE_CHECKING
 
 from ctrl_mix.core.controller import Control
-
-if TYPE_CHECKING:
-    from ctrl_mix.xtouch.controller import XTouchController
-    from ctrl_mix.xtouch.midi import XTouchMidiAdapter
 
 
 class ControlType(IntEnum):
@@ -25,7 +19,7 @@ class ControlSubType(IntEnum):
 
 
 class XTouchControl(Control):
-    def __init__(self, layer: int, index: int, controller: XTouchController):
+    def __init__(self, layer: int, index: int, controller):
         self.layer = layer
         self.index = index
         self.controller = controller
@@ -51,14 +45,6 @@ class XTouchControl(Control):
     def _on_disabled(self): self._is_enabled = False
     def _on_enabled(self): self._is_enabled = True
 
-    @abstractmethod
-    def set_value(self, value: float, sync=True):
-        """ Sets the value, updating the controller if sync==True"""
-
-    @abstractmethod
-    def sync(self):
-        """ Updates the controller to reflect the current value """
-
     def on_press(self):
         self.is_pressed = True
 
@@ -82,13 +68,11 @@ class Encoder(XTouchControl):
         Spread = 3
         Trim = 4
 
-    def __init__(self, layer: int, index: int, controller: XTouchController):
+    def __init__(self, layer: int, index: int, controller):
         super().__init__(layer, index, controller)
 
         self._mode: Encoder.Mode = Encoder.Mode.Fan
-        self._t_press = 0.0
-        self._dt_press = 0.0
-        self._duration_press = 0.0
+        self.tristate_toggle = True
 
     def set_mode(self, mode: Mode, sync=True):
         """
@@ -124,12 +108,17 @@ class Encoder(XTouchControl):
 
     def on_press(self):
         super().on_press()
-        self._dt_press = time.time() - self._t_press
-        self._t_press = time.time()
 
-    def on_release(self):
-        super().on_release()
-        self._duration_press = time.time() - self._t_press
+        if self.tristate_toggle:
+            epsilon = 0.1
+            unity = 0.78
+
+            if self.value < unity / 2 - epsilon:
+                self.set_value(unity / 2)
+            elif self.value < unity - epsilon:
+                self.set_value(unity)
+            else:
+                self.set_value(0.0)
 
 
 class Fader(XTouchControl):
@@ -154,9 +143,12 @@ class Button(XTouchControl):
         On = 2
         Blink = 3
 
-    is_toggle: bool = False
-    _led_mode: LEDMode = LEDMode.Off
-    value: bool = False
+    def __init__(self, layer: int, index: int, controller):
+        super().__init__(layer, index, controller)
+
+        self.is_toggle: bool = False
+        self._led_mode: Button.LEDMode = Button.LEDMode.Off
+        self.value: bool = False
 
     def set_value(self, value: bool, sync=True):
         self.value = bool(value)

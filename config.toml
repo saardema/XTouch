@@ -1,12 +1,12 @@
 #:schema ./config-schema.json
 
 [mixer.inputs]
-"ADAT 8" = { disabled = true }
+"Post Master" = { disabled = true }
 
 [mixer.aux]
-"Aux Phones" = { send = false }
-"Aux JBL"    = { send = false }
-"Aux Sub"    = { send = false }
+"Aux 4"   = { send = false }
+"Aux JBL" = { send = false }
+"Aux Sub" = { send = false }
 
 [mixer.groups]
 "Group 5" = { send = false, fader = false }

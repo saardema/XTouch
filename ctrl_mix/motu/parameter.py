@@ -1,12 +1,7 @@
-from __future__ import annotations
-
 from abc import ABC
-from collections.abc import Callable
-from dataclasses import dataclass
-from math import log, log10
 import re
 from typing import TYPE_CHECKING, Any
-from core.mixer import Parameter, TParam
+from core.mixer import ParamConfig, Parameter, TParam
 from ctrl_mix import gain_to_norm, lin_log, log_lin, norm_to_gain, remap
 
 if TYPE_CHECKING:
@@ -27,47 +22,35 @@ class MotuParameter(Parameter, ABC):
             is_log: bool = False
     ) -> None:
 
-        super().__init__(param_type)
-        self.channel = channel
-
         self.base_path = base_path
         self.rel_path = rel_path
-        self.path = f"{base_path}/{rel_path}"
+        full_path = f"{base_path}/{rel_path}"
+        name = rel_path.split("/")[-1]
 
-        self.cfg = cfg
+        super().__init__(full_path, param_type, cfg, channel, name)
+
         self.is_log = is_log
         self._mix_state = mix_state
-
-        self.name = rel_path.split("/")[-1]
 
     def __repr__(self) -> str:
         return f"Parameter({self.rel_path} = {self.value})"
 
     @property
     def value(self):
-        return self._mix_state[self.path]
+        return self._mix_state[self.key]
 
     @value.setter
     def value(self, value: TParam):
         value = self.cfg.clamp(value)
-        self._mix_state[self.path] = value
+        self._mix_state[self.key] = value
 
     @property
     def normalized(self):
-        value = self._mix_state[self.path]
-        return self._to_normalized(value)
+        return self._to_normalized(self.value)
 
     @normalized.setter
     def normalized(self, value: TParam):
-        value = self._from_normalized(value)
-        value = self.cfg.clamp(value)
-        self._mix_state[self.path] = value
-
-    def _from_normalized(self, value):
-        return self.cfg.denormalize(value)
-
-    def _to_normalized(self, value):
-        return self.cfg.normalize(value)
+        self.value = self._from_normalized(value)
 
     @classmethod
     def create(cls, channel: MotuMixerChannel, base_path: str, rel_path: str, mix_state: dict[str, Any]):
@@ -88,39 +71,13 @@ class MotuParameter(Parameter, ABC):
 
         is_log = cfg.unit == "Hz"
 
+        if is_log:
+            assert cfg.min is not None and cfg.max is not None, \
+                "Logarithmic parameters require a min and max"
+
         instance = param_cls(channel, value_type, base_path, rel_path, mix_state, cfg, is_log)
 
         return instance
-
-    @dataclass
-    class ParamConfig:
-        type: str
-        default: str
-        enums: list[str]
-        unit: str | None
-        min: float | None
-        max: float | None
-
-        def normalize(self, value):
-            if self.min is None or self.max is None:
-                return value
-
-            return remap(value, self.min, self.max, 0, 1)
-
-        def denormalize(self, value):
-            if self.min is None or self.max is None:
-                return value
-
-            return remap(value, 0, 1, self.min, self.max)
-
-        def clamp(self, value):
-            if self.min is not None:
-                value = max(self.min, value)
-
-            if self.max is not None:
-                value = min(self.max, value)
-
-            return value
 
     @staticmethod
     def read_config(path: str, mix: dict[str, Any]):
@@ -145,7 +102,7 @@ class MotuParameter(Parameter, ABC):
         if max_val != None:
             max_val = float(max_val)
 
-        return MotuParameter.ParamConfig(
+        return ParamConfig(
             cfg_type, default, enums, unit, min_val, max_val)
 
 

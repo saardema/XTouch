@@ -1,17 +1,10 @@
-from __future__ import annotations
-
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 import toml
 
-from ctrl_mix.core.mixer import SendChannel
-from ctrl_mix.motu.channel import MotuAux, MotuAuxSendCapable, MotuGroup, MotuInput, MotuMixerChannel
-from ctrl_mix.motu.mixer import MotuMixer
+from ctrl_mix.core.controller import Control
+from ctrl_mix.core.mixer import AuxChannel, AuxSendCapable, GroupChannel, Mixer, MixerChannel, Parameter, SendChannel
 
-
-if TYPE_CHECKING:
-    from ctrl_mix.motu.mixer import MotuParameter
-    from ctrl_mix.xtouch.control import XTouchControl
 
 MAP_FILE_NAME = "map.toml"
 CONFIG_FILE_NAME = "config.toml"
@@ -30,7 +23,7 @@ class SendChannelConfig(ChannelConfig):
 
 @dataclass
 class BusBundle:
-    channel: MotuMixerChannel
+    channel: MixerChannel
     cfg: ChannelConfig
 
 
@@ -41,30 +34,30 @@ class SendBusBundle(BusBundle):
 
 
 class AssignmentManager:
-    def __init__(self, mixer: MotuMixer) -> None:
+    def __init__(self, mixer: Mixer) -> None:
         self.mixer = mixer
 
         self.inputs: dict[str, BusBundle] = {}
         self.aux: dict[str, SendBusBundle] = {}
         self.groups: dict[str, SendBusBundle] = {}
 
-        self.bundles: dict[MotuMixerChannel, BusBundle] = {}
-        self.sendable_aux: dict[int, MotuAux] = {}
-        self.sendable_groups: dict[int, MotuGroup] = {}
+        self.bundles: dict[MixerChannel, BusBundle] = {}
+        self.sendable_aux: dict[int, AuxChannel] = {}
+        self.sendable_groups: dict[int, GroupChannel] = {}
 
         self.main_mix: dict[int, BusBundle] = {}
 
-        self.control_to_parameter: dict[XTouchControl, MotuParameter] = {}
-        self.parameter_to_control: dict[MotuParameter, XTouchControl] = {}
+        self.control_to_parameter: dict[Control, Parameter] = {}
+        self.parameter_to_control: dict[Parameter, Control] = {}
 
         self.config = {}
         self._map_dict = {}
         self.load_config()
 
-    def get_config(self, chan: MotuMixerChannel):
+    def get_config(self, chan: MixerChannel):
         return self.bundles[chan].cfg
 
-    def assign(self, control: XTouchControl, parameter: MotuParameter | None = None):
+    def assign(self, control: Control, parameter: Parameter | None = None):
         if parameter is None:
             self.unassign(control)
             return
@@ -72,19 +65,20 @@ class AssignmentManager:
         self.control_to_parameter[control] = parameter
         self.parameter_to_control[parameter] = control
 
-    def unassign(self, control: XTouchControl):
+    def unassign(self, control: Control):
         if param := self.control_to_parameter.get(control):
             del self.control_to_parameter[control]
-            del self.parameter_to_control[param]
+            if param in self.parameter_to_control:
+                del self.parameter_to_control[param]
 
-    def get_parameter(self, control: XTouchControl):
+    def get_parameter(self, control: Control):
         return self.control_to_parameter.get(control)
 
-    def get_control(self, parameter: MotuParameter):
+    def get_control(self, parameter: Parameter):
         return self.parameter_to_control.get(parameter)
 
-    def assign_channel_strip(self, n: int, channel: MotuMixerChannel | None):
-        if isinstance(channel, MotuAuxSendCapable):
+    def assign_channel_strip(self, n: int, channel: MixerChannel | None):
+        if isinstance(channel, AuxSendCapable):
             self.main_mix[n] = BusBundle(channel, ChannelConfig())
             self.bundles[channel] = self.main_mix[n]
         else:
@@ -130,14 +124,12 @@ class AssignmentManager:
     def _parse_config(self):
         self.inputs, self.aux, self.groups = {}, {}, {}
 
-        chan: MotuInput
         for chan in self.mixer.channels.values():
             data = self.config["mixer"]["inputs"].get(chan.name, {})
             bundle = BusBundle(chan, ChannelConfig(data))
             self.inputs[chan.name] = bundle
             self.bundles[chan] = bundle
 
-        group: MotuGroup
         for group in self.mixer.groups.values():
             data = self.config["mixer"]["groups"].get(group.name, {})
             bundle = SendBusBundle(group, SendChannelConfig(data))
@@ -146,7 +138,6 @@ class AssignmentManager:
                 self.sendable_groups[group.channel_number] = group
             self.bundles[group] = bundle
 
-        aux: MotuAux
         for aux in self.mixer.aux.values():
             data = self.config["mixer"]["aux"].get(aux.name, {})
             bundle = SendBusBundle(aux, SendChannelConfig(data))

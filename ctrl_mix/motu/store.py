@@ -1,4 +1,3 @@
-from __future__ import annotations
 from abc import ABC
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -9,7 +8,7 @@ from motu.http_client import MotuHttpClient
 from core.mixer import TParam
 
 
-@dataclass()
+@dataclass
 class AudioChannel:
     assigned_name: str
     default_name: str

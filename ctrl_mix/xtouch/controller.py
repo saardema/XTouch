@@ -1,12 +1,17 @@
 import asyncio
 from collections.abc import Callable
 
+from ctrl_mix.core.controller import Control
 from ctrl_mix.core.events import Event, EventEmitter
 from ctrl_mix.xtouch.control import Button, ControlSubType, ControlType, Encoder, Fader, XTouchControl
 from ctrl_mix.xtouch.midi import MidiCtrlEvent, XTouchMidiAdapter
 
 
 class XTouchController(EventEmitter):
+    """
+    Hardware API for handling and accessing individual controls
+    """
+
     ControlChanged = Event[Callable[[XTouchControl, ControlSubType], None]]("ControlChanged")
 
     ButtonPressed = Event[Callable[[Button, ControlSubType], None]]("ButtonPressed")
@@ -30,12 +35,10 @@ class XTouchController(EventEmitter):
         self.adapter = XTouchMidiAdapter()
         self.adapter.on(XTouchMidiAdapter.MidiControlChanged, self.on_midi_ctrl_event)
 
+        self.build_controls()
         self.init_controls()
 
-        for btn in self.channel_buttons + self.transport_buttons:
-            btn.set_led(False)
-
-    def init_controls(self):
+    def build_controls(self):
         self.faders: list[list[Fader]] = [
             [Fader(l, i, self) for i in range(8 + 1)]
             for l in range(2)]
@@ -53,6 +56,7 @@ class XTouchController(EventEmitter):
             for l in range(2)]
         self.channel_buttons = self.buttons[0][:32] + self.buttons[1][:32]
         self.main_buttons = [self.buttons[0][32], self.buttons[1][32]]
+        self.mute_buttons = self.buttons[0][0:8] + self.buttons[1][0:8]
         self.select_buttons = self.buttons[0][24:32] + self.buttons[1][24:32] + self.main_buttons
         self.transport_buttons = self.buttons[0][33:] + self.buttons[1][33:]
         self.button_columns = [
@@ -61,15 +65,20 @@ class XTouchController(EventEmitter):
             for ch in range(8)
         ]
 
-    def set_control(self, control: XTouchControl, value):
+    def init_controls(self):
+        """
+        Turn off visual values of current layer
+        without affecting controller values
+        """
+
+        for btn in self.buttons[0]:
+            btn.set_led(False)
+
+        for enc in self.encoders[0]:
+            enc.set_ring(0)
+
+    def set_control(self, control: Control, value):
         control.set_value(value)
-
-    def get_channel_strip(self, channel: int):
-        encoder = self.channel_encoders[channel]
-        fader = self.channel_faders[channel]
-        mute = self.button_columns[channel][0]
-
-        return encoder, fader, mute
 
     def get_control(self, ctrl_type: ControlType, layer: int, number: int) -> XTouchControl:
         if ctrl_type is ControlType.Encoder:
@@ -78,6 +87,13 @@ class XTouchController(EventEmitter):
             return self.buttons[layer][number]
 
         return self.faders[layer][number]
+
+    def get_channel_strip(self, channel: int):
+        encoder = self.channel_encoders[channel]
+        fader = self.channel_faders[channel]
+        mute = self.button_columns[channel][0]
+
+        return encoder, fader, mute
 
     def on_midi_ctrl_event(
         self,
@@ -95,8 +111,10 @@ class XTouchController(EventEmitter):
                 ctrl.on_press()
             else:
                 ctrl.on_release()
+
         elif ctrl.is_enabled:
             ctrl.set_value(value, False)
+
         else:
             ctrl._on_disabled()
             return
@@ -109,13 +127,13 @@ class XTouchController(EventEmitter):
                 asyncio.sleep(.25),
                 self.event_loop
             ).add_done_callback(
-                lambda f: self._delayed_encoder_press_handler(ctrl, sub_type))
+                lambda _: self._delayed_encoder_press_handler(ctrl, sub_type))
 
         else:
             self.emit(event, ctrl, sub_type)
             self.emit(self.ControlChanged, ctrl, sub_type)
 
-    def _delayed_encoder_press_handler(self, ctrl, sub_type):
+    def _delayed_encoder_press_handler(self, ctrl: XTouchControl, sub_type: ControlSubType):
         if ctrl.is_pressed:
             event = self.EncoderLongPressed
         else:
@@ -123,7 +141,3 @@ class XTouchController(EventEmitter):
 
         self.emit(event, ctrl, sub_type)
         self.emit(self.ControlChanged, ctrl, sub_type)
-
-    async def _coro_classify_press_duration(self, ctrl):
-        await asyncio.sleep(0.25)
-        return ctrl.is_pressed

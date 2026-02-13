@@ -24,7 +24,6 @@ class MotuHttpClient:
         self.push_scheduled = False
         self.etag = 0
 
-        # self.req_loop = asyncio.new_event_loop()
         self.req_loop = event_loop
         self.req_thread = threading.Thread(target=self._run_req_event_loop)
         self.req_thread.start()
@@ -44,9 +43,11 @@ class MotuHttpClient:
 
     def fetch_path(self, sub_path: str) -> dict[str, TParam]:
         resp = requests.get(self.get_url(sub_path))
-        self.etag = int(resp.headers["etag"])
+        if resp.status_code == 200:
+            self.etag = int(resp.headers["etag"])
+            return resp.json()
 
-        return resp.json()
+        raise ConnectionError(f"Server error ({resp.status_code}). Reason: '{resp.reason}'")
 
     def push_change(self, path: str, value: TParam):
         """
@@ -106,11 +107,21 @@ class MotuHttpClient:
         requests.patch(url, body)
 
     def long_poll(self, path: str = "mix"):
+        disconnect_logged = False
+        not_found_logged = False
+
         while True:
-            resp = requests.get(
-                self.get_url(path),
-                headers={"If-None-Match": str(self.etag)}
-            )
+            try:
+                resp = requests.get(
+                    self.get_url(path),
+                    headers={"If-None-Match": str(self.etag)}
+                )
+            except ConnectionError:
+                if not disconnect_logged:
+                    disconnect_logged = True
+                    print("Motu device disconnected. Retrying every 10 sec.")
+                time.sleep(10)
+                continue
 
             if resp.status_code == 304:
                 # Expected time out after 15 seconds
@@ -122,6 +133,7 @@ class MotuHttpClient:
 
                 if etag == self.etag:
                     # Origin of change was local
+                    print("local")
                     time.sleep(0.3)
                     continue
 
@@ -140,6 +152,16 @@ class MotuHttpClient:
                         print("     RECV", "(the whole fucking datastore)")
 
                     self.long_poll_callback(data)
+
+            elif 500 <= resp.status_code < 600:
+                print(f"Server error ({resp.status_code}). Reason: '{resp.reason}'")
+                time.sleep(10)
+
+            elif resp.status_code == 404:
+                if not not_found_logged:
+                    not_found_logged = True
+                    print(f"Motu device not found")
+                time.sleep(10)
 
             else:
                 raise ValueError("Unhandled long poll status header")
