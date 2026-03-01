@@ -162,12 +162,12 @@ class Engine(EventEmitter):
         ] + [self.mixer.monitor.fader]
 
     def get_aux_sends(self, chan: MotuAuxSendCapable):
-        return [chan.aux_sends[a]["send"] for a in self.assignments.sendable_aux]
+        return [send["send"] for nr, send in chan.aux_sends.items()
+                if nr in self.mixer.sendable_aux]
 
     def get_group_sends(self, chan: MotuGroupSendCapable):
-        return [
-            send["send"] for nr, send in chan.group_sends.items()
-            if nr in self.assignments.sendable_groups]
+        return [send["send"] for nr, send in chan.group_sends.items()
+                if nr in self.mixer.sendable_groups]
 
     def _set_layer(self, layer: int):
         if self.state.layer != layer:

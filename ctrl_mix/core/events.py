@@ -20,6 +20,7 @@ class EventEmitter:
     def __init__(self):
         self._listeners: dict[Event, set[Callable]] = defaultdict(set)
         self._events: dict[str, Event] = {}
+
         super().__init__()
 
     def _register(self, name: str, signature: type):

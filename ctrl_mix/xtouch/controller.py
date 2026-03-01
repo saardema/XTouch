@@ -32,8 +32,12 @@ class XTouchController(EventEmitter):
 
         self.event_loop = event_loop
 
+        self._mc_mode_enabled = False
+        self._mc_mode_combo_state = [False, False]
+
         self.adapter = XTouchMidiAdapter()
         self.adapter.on(XTouchMidiAdapter.MidiControlChanged, self.on_midi_ctrl_event)
+        self.adapter.set_device_mode(self._mc_mode_enabled)
 
         self.build_controls()
         self.init_controls()
@@ -104,6 +108,19 @@ class XTouchController(EventEmitter):
         number: int,
         value: float
     ):
+        # Switch between Standard and Mackie Control mode
+        # by pressing the first two buttons on the third row
+        if ctrl_type is ControlType.Button:
+            btns = [24, 25] if self._mc_mode_enabled else [16, 17]
+            if number in btns:
+                self._mc_mode_combo_state[number % 2] = midi_event is MidiCtrlEvent.Pressed
+                if self._mc_mode_combo_state == [True, True]:
+                    self._mc_mode_enabled = not self._mc_mode_enabled
+                    self.adapter.set_device_mode(self._mc_mode_enabled)
+
+        if self._mc_mode_enabled:
+            return
+
         ctrl = self.get_control(ctrl_type, layer, number)
 
         if midi_event & MidiCtrlEvent.PressEvent:

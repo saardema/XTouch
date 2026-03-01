@@ -17,10 +17,10 @@
 						"description": "Input channel configuration",
 						"additionalProperties": false,
 						"properties": {
-							"disabled": {
+							"fader": {
 								"type": "boolean",
 								"description": "Makes the Input channel invisible and not configurable",
-								"default": false
+								"default": true
 							}
 						}
 					}

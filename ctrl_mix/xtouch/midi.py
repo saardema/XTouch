@@ -12,7 +12,6 @@ DEVICE_NAME = "X-TOUCH COMPACT"
 class XTouchMIDIClient:
 
     def __init__(self, midi_callback: Callable) -> None:
-
         self.ready = False
         self.midi_callback = midi_callback
 
@@ -107,7 +106,7 @@ class XTouchMidiAdapter(EventEmitter):
             return
 
         lookup = self.cc_map if is_cc else self.note_map
-        for ctrl, event, sequence, default, sub_types in lookup:
+        for ctrl_type, event, sequence, default, sub_types in lookup:
             if number in sequence:
                 idx = number - sequence.start
                 sub_type = default
@@ -127,7 +126,7 @@ class XTouchMidiAdapter(EventEmitter):
             else:
                 event |= MidiCtrlEvent.EventEnd
 
-        self.emit(XTouchMidiAdapter.MidiControlChanged, ctrl, sub_type, event, layer, idx, normalized)
+        self.emit(XTouchMidiAdapter.MidiControlChanged, ctrl_type, sub_type, event, layer, idx, normalized)
 
     def set_fader_value(self, layer: int, index: int, value: float):
         cc_number = index
@@ -188,3 +187,13 @@ class XTouchMidiAdapter(EventEmitter):
 
         velocity = on << 1 | blink
         self.client.send_note_on(index, velocity, self.global_channel)
+
+    def set_device_mode(self, mc_mode=False):
+        """
+        Switch between standard MIDI mode and Mackie Control mode
+
+        0 = Standard Mode, MC Mode LED off
+        1 = MC Mode, MC Mode LED on
+        2-127 = ignored
+        """
+        self.client.send_cc(127, int(mc_mode), self.global_channel)

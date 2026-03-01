@@ -1,13 +1,10 @@
 # Fader 1-8
 
 [[channel_strip]]
-src = "TR-8S Kick"
-
-[[channel_strip]]
 src = "TR-8S"
 
 [[channel_strip]]
-src = "Edge"
+src = "Sub-37"
 
 [[channel_strip]]
 src = "Labyrinth"
@@ -16,7 +13,7 @@ src = "Labyrinth"
 src = "Model D"
 
 [[channel_strip]]
-src = "Sub-37"
+src = "Pro-800"
 
 [[channel_strip]]
 src = "Minilogue XD"
@@ -24,10 +21,13 @@ src = "Minilogue XD"
 [[channel_strip]]
 src = "Digitakt"
 
+[[channel_strip]]
+src = "Edge"
+
 # Fader 9-16
 
 [[channel_strip]]
-src = "Pro-800"
+src = "TR-8S Kick"
 
 [[channel_strip]]
 src = "MS-20"

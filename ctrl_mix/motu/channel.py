@@ -84,11 +84,14 @@ class MotuGroupSendCapable(MotuMixerChannel):
         super().init_params(state)
 
         self.group_sends = {}
+
         for idx in state["matrix"]["group"]:
             self.group_sends[int(idx)] = {
                 "send": self.create_param(f"matrix/group/{idx}/send"),
                 "pan": self.create_param(f"matrix/group/{idx}/pan")
             }
+
+        self.group_sends = dict(sorted(self.group_sends.items()))
 
 
 class MotuAuxSendCapable(MotuMixerChannel):
@@ -98,11 +101,14 @@ class MotuAuxSendCapable(MotuMixerChannel):
         super().init_params(state)
 
         self.aux_sends = {}
+
         for idx in state["matrix"]["aux"]:
             self.aux_sends[int(idx)] = {
                 "send": self.create_param(f"matrix/aux/{idx}/send"),
                 "pan": self.create_param(f"matrix/aux/{idx}/pan")
             }
+
+        self.aux_sends = dict(sorted(self.aux_sends.items()))
 
 
 class MotuSendReceiver(MotuMixerChannel):

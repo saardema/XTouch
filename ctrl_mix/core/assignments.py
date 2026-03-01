@@ -1,51 +1,20 @@
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
 import toml
 
 from ctrl_mix.core.controller import Control
-from ctrl_mix.core.mixer import AuxChannel, AuxSendCapable, GroupChannel, Mixer, MixerChannel, Parameter, SendChannel
+from ctrl_mix.core.mixer import AuxChannel, AuxSendCapable, ChannelConfig, \
+    GroupChannel, Mixer, MixerChannel, Parameter, SendChannelConfig
 
 
 MAP_FILE_NAME = "map.toml"
 CONFIG_FILE_NAME = "config.toml"
 
 
-class ChannelConfig:
-    def __init__(self, data: dict[str, bool] = {}) -> None:
-        self.fader = data.get("fader", True)
-
-
-class SendChannelConfig(ChannelConfig):
-    def __init__(self, data: dict[str, bool] = {}) -> None:
-        super().__init__(data)
-        self.send_enabled = data.get("send", True)
-
-
-@dataclass
-class BusBundle:
-    channel: MixerChannel
-    cfg: ChannelConfig
-
-
-@dataclass
-class SendBusBundle(BusBundle):
-    channel: SendChannel
-    cfg: SendChannelConfig
-
-
 class AssignmentManager:
     def __init__(self, mixer: Mixer) -> None:
         self.mixer = mixer
 
-        self.inputs: dict[str, BusBundle] = {}
-        self.aux: dict[str, SendBusBundle] = {}
-        self.groups: dict[str, SendBusBundle] = {}
-
-        self.bundles: dict[MixerChannel, BusBundle] = {}
-        self.sendable_aux: dict[int, AuxChannel] = {}
-        self.sendable_groups: dict[int, GroupChannel] = {}
-
-        self.main_mix: dict[int, BusBundle] = {}
+        self.main_mix: dict[int, MixerChannel] = {}
 
         self.control_to_parameter: dict[Control, Parameter] = {}
         self.parameter_to_control: dict[Parameter, Control] = {}
@@ -53,9 +22,6 @@ class AssignmentManager:
         self.config = {}
         self._map_dict = {}
         self.load_config()
-
-    def get_config(self, chan: MixerChannel):
-        return self.bundles[chan].cfg
 
     def assign(self, control: Control, parameter: Parameter | None = None):
         if parameter is None:
@@ -79,8 +45,7 @@ class AssignmentManager:
 
     def assign_channel_strip(self, n: int, channel: MixerChannel | None):
         if isinstance(channel, AuxSendCapable):
-            self.main_mix[n] = BusBundle(channel, ChannelConfig())
-            self.bundles[channel] = self.main_mix[n]
+            self.main_mix[n] = channel
         else:
             del self.main_mix[n]
 
@@ -109,10 +74,8 @@ class AssignmentManager:
             if strip_def.get("disabled"):
                 continue
 
-            if (strip_type := strip_def.get("type", "input")) == "input":
-                strip = self.inputs.get(strip_def["src"])
-            else:
-                strip = self.groups.get(strip_def["src"])
+            strip_type = strip_def.get("type", "input")
+            strip = self.mixer.find(strip_def["src"], strip_type)
 
             if strip:
                 self.main_mix[chan_nr] = strip
@@ -122,26 +85,15 @@ class AssignmentManager:
             chan_nr += 1
 
     def _parse_config(self):
-        self.inputs, self.aux, self.groups = {}, {}, {}
 
         for chan in self.mixer.channels.values():
             data = self.config["mixer"]["inputs"].get(chan.name, {})
-            bundle = BusBundle(chan, ChannelConfig(data))
-            self.inputs[chan.name] = bundle
-            self.bundles[chan] = bundle
+            chan.config = ChannelConfig(data)
 
         for group in self.mixer.groups.values():
             data = self.config["mixer"]["groups"].get(group.name, {})
-            bundle = SendBusBundle(group, SendChannelConfig(data))
-            self.groups[group.name] = bundle
-            if bundle.cfg.send_enabled:
-                self.sendable_groups[group.channel_number] = group
-            self.bundles[group] = bundle
+            group.config = SendChannelConfig(data)
 
         for aux in self.mixer.aux.values():
             data = self.config["mixer"]["aux"].get(aux.name, {})
-            bundle = SendBusBundle(aux, SendChannelConfig(data))
-            self.aux[aux.name] = bundle
-            if bundle.cfg.send_enabled:
-                self.sendable_aux[aux.channel_number] = aux
-            self.bundles[aux] = bundle
+            aux.config = SendChannelConfig(data)

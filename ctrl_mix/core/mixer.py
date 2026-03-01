@@ -95,10 +95,7 @@ class ChannelType(Enum):
 class Mixer(ABC):
     ParameterSetFromMixer = Event[Callable[[Parameter], None]]("ParameterSetFromMixer")
 
-    def __init__(self, n_channels: int, n_groups: int, n_aux: int):
-        self.n_channels = n_channels
-        self.n_groups = n_groups
-        self.n_aux = n_aux
+    def __init__(self):
         self.channels: dict[int, InputChannel] = {}
         self.groups: dict[int, GroupChannel] = {}
         self.aux: dict[int, AuxChannel] = {}
@@ -108,9 +105,41 @@ class Mixer(ABC):
     @abstractmethod
     def set_parameter(self, param: Parameter, value: TParam): ...
 
+    def find(self, name: str, type="") -> MixerChannel | None:
 
-class MixerChannel:
+        haystack = self.aux | self.groups | self.channels
+
+        if type == "input":
+            haystack = self.channels
+        elif type == "group":
+            haystack = self.groups
+        elif type == "aux":
+            haystack = self.aux
+
+        for chan in haystack.values():
+            if chan.name == name:
+                return chan
+
+        return None
+
+    @property
+    def sendable_groups(self):
+        return {
+            nr: group for nr, group in self.groups.items()
+            if group.config.send_enabled
+        }
+
+    @property
+    def sendable_aux(self):
+        return {
+            nr: aux for nr, aux in self.aux.items()
+            if aux.config.send_enabled
+        }
+
+
+class MixerChannel(ABC):
     channel_type: ChannelType
+    config: ChannelConfig
     fader: Parameter
     mute: Parameter
 
@@ -121,15 +150,15 @@ class MixerChannel:
 
 
 class MonitorChannel(MixerChannel):
-    ...
+    channel_type = ChannelType.Monitor
 
 
 class MainChannel(MixerChannel):
-    ...
+    channel_type = ChannelType.Main
 
 
 class SendChannel(MixerChannel):
-    ...
+    config: SendChannelConfig
 
 
 class GroupSendCapable(MixerChannel):
@@ -141,12 +170,23 @@ class AuxSendCapable(MixerChannel):
 
 
 class InputChannel(AuxSendCapable):
-    ...
+    channel_type = ChannelType.Input
 
 
 class GroupChannel(SendChannel, AuxSendCapable):
-    ...
+    channel_type = ChannelType.Group
 
 
 class AuxChannel(SendChannel):
-    ...
+    channel_type = ChannelType.Aux
+
+
+class ChannelConfig:
+    def __init__(self, data: dict[str, bool] = {}) -> None:
+        self.fader = data.get("fader", True)
+
+
+class SendChannelConfig(ChannelConfig):
+    def __init__(self, data: dict[str, bool] = {}) -> None:
+        super().__init__(data)
+        self.send_enabled = data.get("send", True)

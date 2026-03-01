@@ -13,33 +13,28 @@ T = TypeVar("T", int, str, float, bool)
 class MotuMixer(Mixer, EventEmitter):
 
     def __init__(self, event_loop) -> None:
-        self.params: dict[str, Parameter] = {}
+        super().__init__()
 
+        self.params: dict[str, Parameter] = {}
         self.store = MixerStore(event_loop)
         self.store.on(MixerStore.StoreUpdated, self._on_store_updated)
-
-        self.input_bank = self.store.get_bank("Mix In")
-        self.group_bank = self.store.get_bank("Mix Group")
-        self.aux_bank = self.store.get_bank("Mix Aux")
-
-        super().__init__(len(self.input_bank), len(self.group_bank), len(self.aux_bank))
 
         self.main = MotuMain(self, 0, "Main")
         self.monitor = MotuMonitor(self, 0, "Monitor")
 
         self.channels: dict[int, MotuInput] = {
             i: MotuInput(self, i, chan.name)
-            for i, chan in self.input_bank.items()
+            for i, chan in self.store.get_bank("Mix In").items()
         }
 
         self.groups: dict[int, MotuGroup] = {
             i: MotuGroup(self, i, chan.name)
-            for i, chan in self.group_bank.items()
+            for i, chan in self.store.get_bank("Mix Group").items()
         }
 
         self.aux: dict[int, MotuAux] = {
             i: MotuAux(self, i, chan.name)
-            for i, chan in self.aux_bank.items()
+            for i, chan in self.store.get_bank("Mix Aux").items()
         }
 
         self.init_params()

@@ -159,6 +159,8 @@ class Button(XTouchControl):
         self.set_led(self.value)
 
     def on_press(self):
+        super().on_press()
+
         if self.is_toggle:
             self.value = not self.value
 
@@ -168,6 +170,8 @@ class Button(XTouchControl):
                 self.set_led(False)
 
     def on_release(self):
+        super().on_release()
+
         # The LED is always internally toggled off on release
         # So keep the LED on when value is toggled on
         if self.value:

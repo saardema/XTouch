@@ -1,7 +1,7 @@
 #:schema ./config-schema.json
 
 [mixer.inputs]
-"Post Master" = { disabled = true }
+"Post Master" = { fader = false }
 
 [mixer.aux]
 "Aux 4"   = { send = false }

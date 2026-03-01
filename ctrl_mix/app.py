@@ -12,7 +12,7 @@ class ConfigModeHandler:
         chan = mix.main
 
         if ch_idx != -1:
-            candidate = asm.main_mix[ch_idx].channel
+            candidate = asm.main_mix[ch_idx]
             if isinstance(candidate, MotuMixerChannel):
                 chan = candidate
 
@@ -124,20 +124,20 @@ mode_map: dict[ChannelConfigMode, type[ConfigModeHandler]] = {
 
 
 def setup_main_mix():
-    for i, strip in asm.main_mix.items():
+    for i, channel in asm.main_mix.items():
         encoder, fader, button = ctr.get_channel_strip(i)
         if i == 2:
             pass
 
         # Channel Main send => Top encoder
-        if isinstance(strip.channel, MotuMainSendCapable):
-            engine.assign(encoder, strip.channel.main_send)
+        if isinstance(channel, MotuMainSendCapable):
+            engine.assign(encoder, channel.main_send)
 
         # Channel fader => Fader
-        engine.assign(fader, strip.channel.fader)
+        engine.assign(fader, channel.fader)
 
         # Mute toggle => Top button
-        engine.assign(button, strip.channel.mute)
+        engine.assign(button, channel.mute)
         button.is_toggle = True
 
     # Main mix fader
@@ -162,7 +162,7 @@ def on_encoder_long_pressed(encoder: Encoder, sub_type):
 
 def on_channel_selected(layer: int, ch: int):
     mode_map[engine.state.chan_cfg_mode].enter()
-    chan = asm.main_mix[ch].channel
+    chan = asm.main_mix[ch]
 
     # Group sends => Channel encoders
     if isinstance(chan, MotuGroupSendCapable):
