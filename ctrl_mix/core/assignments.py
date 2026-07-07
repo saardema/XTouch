@@ -1,9 +1,9 @@
-from dataclasses import dataclass
 import toml
+from os.path import isfile
 
 from ctrl_mix.core.controller import Control
-from ctrl_mix.core.mixer import AuxChannel, AuxSendCapable, ChannelConfig, \
-    GroupChannel, Mixer, MixerChannel, Parameter, SendChannelConfig
+from ctrl_mix.core.mixer import AuxSendCapable, ChannelConfig, \
+    Mixer, MixerChannel, Parameter, SendChannelConfig
 
 
 MAP_FILE_NAME = "map.toml"
@@ -19,7 +19,7 @@ class AssignmentManager:
         self.control_to_parameter: dict[Control, Parameter] = {}
         self.parameter_to_control: dict[Parameter, Control] = {}
 
-        self.config = {}
+        self.config = {mixer: {}}
         self._map_dict = {}
         self.load_config()
 
@@ -50,9 +50,15 @@ class AssignmentManager:
             del self.main_mix[n]
 
     def load_config(self):
+        if not isfile(CONFIG_FILE_NAME):
+            self.save_config()
+
         with open(CONFIG_FILE_NAME, "r") as f:
             self.config = toml.load(f)
         self._parse_config()
+
+        if not isfile(MAP_FILE_NAME):
+            self.save_map()
 
         with open(MAP_FILE_NAME, "r") as f:
             self._map_dict = toml.load(f)
@@ -85,7 +91,6 @@ class AssignmentManager:
             chan_nr += 1
 
     def _parse_config(self):
-
         for chan in self.mixer.channels.values():
             data = self.config["mixer"]["inputs"].get(chan.name, {})
             chan.config = ChannelConfig(data)

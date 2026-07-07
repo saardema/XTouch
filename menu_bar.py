@@ -1,48 +1,24 @@
 import os
 import signal
+import sys
 
+from AppKit import NSApplicationActivationPolicyAccessory
+from AppKit import NSApplication
 import rumps
 import subprocess
 
-LOG_PATH = "/tmp/ctrl_mix.log"
+LOG_PATH = os.path.expanduser("~/Library/Logs/com.CtrlMix.log")
+sub_process: subprocess.Popen | None = None
 
 
 class MenuBar(rumps.App):
     def __init__(self):
-        super().__init__("CtrlMix")
-        self.process = None
+        super().__init__("CtrlMix", quit_button=None)
 
-        self.start(None)
-        self.open_mixer(None)
-
-    @rumps.clicked("Mixer")
-    def open_mixer(self, _):
-        subprocess.Popen(["open", "-a", "Mixer"])
-
-    def start(self, _):
-        if self.process is None:
-            self.process = subprocess.Popen(
-                "python ctrl_mix/app.py",
-                shell=True,
-                stdout=open(LOG_PATH, "a"),
-                stderr=subprocess.STDOUT,
-                preexec_fn=os.setsid
-            )
-
-    @rumps.clicked("Start")
-    def stop_start(self, _):
-        self.stop(None)
-        self.start(None)
-
-    @rumps.clicked("Stop")
-    def stop(self, _):
-        if self.process:
-            pid = os.getpgid(self.process.pid)
-            try:
-                os.killpg(pid, signal.SIGTERM)
-            except ProcessLookupError:
-                print(f"Process already terminated. PID {pid}")
-            self.process = None
+    @rumps.clicked("Restart")
+    def restart(self, _):
+        stop_core()
+        start_core()
 
     @rumps.clicked("Show Logs")
     def logs(self, _):
@@ -50,8 +26,47 @@ class MenuBar(rumps.App):
 
     @rumps.clicked("Clear logs")
     def clear_logs(self, _):
-        subprocess.Popen(["truncate", "-s", "0", LOG_PATH])
+        open(LOG_PATH, "w")
+
+    @rumps.clicked('Quit')
+    def quit(self, _): shutdown()
+
+
+def start_core():
+    global sub_process
+
+    if sub_process is None:
+        sub_process = subprocess.Popen(
+            [sys.executable, "ctrl_mix/app.py"],
+            stdout=open(LOG_PATH, "a"),
+            stderr=subprocess.STDOUT,
+        )
+
+
+def stop_core():
+    global sub_process
+
+    if sub_process is not None:
+        sub_process.terminate()
+        sub_process.wait(timeout=1)
+        sub_process = None
+
+
+def shutdown(*_):
+    stop_core()
+    rumps.quit_application()
+    sys.exit(0)
 
 
 if __name__ == "__main__":
-    MenuBar().run()
+    signal.signal(signal.SIGTERM, shutdown)
+    signal.signal(signal.SIGINT, shutdown)
+
+    nsapp = NSApplication.sharedApplication()
+    nsapp.setActivationPolicy_(NSApplicationActivationPolicyAccessory)
+
+    start_core()
+    app = MenuBar()
+    app.run()
+
+    rumps.quit_application()
