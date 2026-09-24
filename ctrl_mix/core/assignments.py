@@ -5,9 +5,7 @@ from ctrl_mix.core.controller import Control
 from ctrl_mix.core.mixer import AuxSendCapable, ChannelConfig, \
     Mixer, MixerChannel, Parameter, SendChannelConfig
 
-
-MAP_FILE_NAME = "map.toml"
-CONFIG_FILE_NAME = "config.toml"
+MAP_FILE_NAME = "../map.toml"
 
 
 class AssignmentManager:
@@ -19,9 +17,8 @@ class AssignmentManager:
         self.control_to_parameter: dict[Control, Parameter] = {}
         self.parameter_to_control: dict[Parameter, Control] = {}
 
-        self.config = {mixer: {}}
-        self._map_dict = {}
-        self.load_config()
+        self._map_data = {}
+        self._load_map()
 
     def assign(self, control: Control, parameter: Parameter | None = None):
         if parameter is None:
@@ -49,34 +46,23 @@ class AssignmentManager:
         else:
             del self.main_mix[n]
 
-    def load_config(self):
-        if not isfile(CONFIG_FILE_NAME):
-            self.save_config()
-
-        with open(CONFIG_FILE_NAME, "r") as f:
-            self.config = toml.load(f)
-        self._parse_config()
-
+    def _load_map(self):
         if not isfile(MAP_FILE_NAME):
             self.save_map()
 
         with open(MAP_FILE_NAME, "r") as f:
-            self._map_dict = toml.load(f)
+            self._map_data = toml.load(f)
         self._parse_map()
 
     def save_map(self):
         with open(MAP_FILE_NAME, "w") as f:
-            toml.dump(self._map_dict, f)
-
-    def save_config(self):
-        with open(CONFIG_FILE_NAME, "w") as f:
-            toml.dump(self.config, f)
+            toml.dump(self._map_data, f)
 
     def _parse_map(self):
         chan_nr = 0
         self.main_mix = {}
 
-        for strip_def in self._map_dict["channel_strip"]:
+        for strip_def in self._map_data["channel_strip"]:
             if strip_def.get("disabled"):
                 continue
 
@@ -90,15 +76,14 @@ class AssignmentManager:
 
             chan_nr += 1
 
-    def _parse_config(self):
         for chan in self.mixer.channels.values():
-            data = self.config["mixer"]["inputs"].get(chan.name, {})
+            data = self._map_data["mixer"]["inputs"].get(chan.name, {})
             chan.config = ChannelConfig(data)
 
         for group in self.mixer.groups.values():
-            data = self.config["mixer"]["groups"].get(group.name, {})
+            data = self._map_data["mixer"]["groups"].get(group.name, {})
             group.config = SendChannelConfig(data)
 
         for aux in self.mixer.aux.values():
-            data = self.config["mixer"]["aux"].get(aux.name, {})
+            data = self._map_data["mixer"]["aux"].get(aux.name, {})
             aux.config = SendChannelConfig(data)

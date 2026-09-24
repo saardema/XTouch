@@ -1,12 +1,3 @@
-#:schema ./config-schema.json
+#:schema ./schemas/config-schema.json
 
-[mixer.inputs]
-"Post Master" = { fader = false }
-
-[mixer.aux]
-"Aux 4"   = { send = false }
-"Aux JBL" = { send = false }
-"Aux Sub" = { send = false }
-
-[mixer.groups]
-"Group 5" = { send = false, fader = false }
+motu_device_id = "0001f2fffe00be6a"
