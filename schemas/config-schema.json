@@ -1,0 +1,12 @@
+{
+	"title": "Motu XTouch Mapping Configuration",
+	"description": "Configuration schema for mapping.toml",
+	"type": "object",
+	"additionalProperties": false,
+	"properties": {
+		"motu_device_id": {
+			"type": "string",
+			"description": "16 digit alpha-numeric MOTU audio interface device ID. Can be found in the URL of the MOTU web app."
+		}
+	}
+}
