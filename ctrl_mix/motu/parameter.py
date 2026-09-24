@@ -2,7 +2,7 @@ from abc import ABC
 import re
 from typing import TYPE_CHECKING, Any
 from core.mixer import ParamConfig, Parameter, TParam
-from ctrl_mix import gain_to_norm, lin_log, log_lin, norm_to_gain, remap
+from ctrl_mix.utils import gain_to_norm, lin_log, log_lin, norm_to_gain
 
 if TYPE_CHECKING:
     from motu.channel import MotuMixerChannel
@@ -75,7 +75,8 @@ class MotuParameter(Parameter, ABC):
             assert cfg.min is not None and cfg.max is not None, \
                 "Logarithmic parameters require a min and max"
 
-        instance = param_cls(channel, value_type, base_path, rel_path, mix_state, cfg, is_log)
+        instance = param_cls(channel, value_type, base_path,
+                             rel_path, mix_state, cfg, is_log)
 
         return instance
 

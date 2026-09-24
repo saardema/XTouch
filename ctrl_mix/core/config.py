@@ -1,9 +1,8 @@
 from dataclasses import asdict, dataclass
-from typing import TypedDict
 import toml
 from os.path import isfile
 
-_CONFIG_FILE_NAME = "../config.toml"
+_CONFIG_FILE_NAME = "config.toml"
 
 
 @dataclass

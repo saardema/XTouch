@@ -8,15 +8,13 @@ import json
 import asyncio
 
 from core.mixer import TParam
-
-
-DEVICE_ID = "0001f2fffe00be6a"
+from core.config import config
 
 
 class MotuHttpClient:
     def __init__(self, long_poll_callback: Callable[[dict], None], event_loop, request_rate=0.025) -> None:
         self.client_id = randint(0, (1 << 32) - 1)
-        self.api_url_base = f'http://localhost:1280/{DEVICE_ID}/datastore'
+        self.api_url_base = f'http://localhost:1280/{config.motu_device_id}/datastore'
         self.request_rate = request_rate
         self.long_poll_callback = long_poll_callback
         self.patch: dict[str, TParam] = {}
@@ -47,7 +45,8 @@ class MotuHttpClient:
             self.etag = int(resp.headers["etag"])
             return resp.json()
 
-        raise ConnectionError(f"Server error ({resp.status_code}). Reason: '{resp.reason}'")
+        raise ConnectionError(
+            f"Server error ({resp.status_code}). Reason: '{resp.reason}'")
 
     def push_change(self, path: str, value: TParam):
         """
@@ -58,7 +57,8 @@ class MotuHttpClient:
 
         if not self.push_scheduled:
             self.push_scheduled = True
-            asyncio.run_coroutine_threadsafe(self._schedule_patch(), self.req_loop)
+            asyncio.run_coroutine_threadsafe(
+                self._schedule_patch(), self.req_loop)
 
     def _run_req_event_loop(self):
         """ Run the event loop in a background thread """
@@ -154,7 +154,8 @@ class MotuHttpClient:
                     self.long_poll_callback(data)
 
             elif 500 <= resp.status_code < 600:
-                print(f"Server error ({resp.status_code}). Reason: '{resp.reason}'")
+                print(
+                    f"Server error ({resp.status_code}). Reason: '{resp.reason}'")
                 time.sleep(10)
 
             elif resp.status_code == 404:

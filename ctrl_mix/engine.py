@@ -3,6 +3,7 @@ from collections.abc import Callable, Sequence
 from enum import Enum
 import re
 
+from core.config import init_config
 from core.events import Event, EventEmitter
 from ctrl_mix.core.assignments import AssignmentManager
 from ctrl_mix.core.mixer import Parameter
@@ -62,11 +63,14 @@ class Engine(EventEmitter):
     ChannelUnselected = Event[Callable[[int, int], None]]("ChannelUnslected")
     ChannelSelected = Event[Callable[[int, int], None]]("ChannelSelected")
     ChannelReselected = Event[Callable[[int, int], None]]("ChannelReselected")
-    ChannelConfigModeChanged = Event[Callable[[ChannelConfigMode], None]]("ChannelConfigModeChanged")
+    ChannelConfigModeChanged = Event[Callable[[ChannelConfigMode], None]](
+        "ChannelConfigModeChanged")
     LayerChanged = Event[Callable[[int], None]]("LayerChanged")
 
     def __init__(self):
         super().__init__()
+
+        init_config()
 
         self.event_loop = asyncio.new_event_loop()
 
@@ -77,9 +81,12 @@ class Engine(EventEmitter):
         self.state = ControllerState()
         adapter = self.controller.adapter
 
-        self.mixer.on(MotuMixer.ParameterSetFromMixer, self._on_parameter_updated)
-        self.controller.on(XTouchController.ButtonPressed, self._on_button_press_start)
-        self.controller.on(XTouchController.ControlChanged, self._on_control_updated)
+        self.mixer.on(MotuMixer.ParameterSetFromMixer,
+                      self._on_parameter_updated)
+        self.controller.on(XTouchController.ButtonPressed,
+                           self._on_button_press_start)
+        self.controller.on(XTouchController.ControlChanged,
+                           self._on_control_updated)
         adapter.on(adapter.ExpressionChanged, self._on_expression_changed)
 
     def set_chan_cfg_mode(self, mode: ChannelConfigMode):
@@ -145,7 +152,8 @@ class Engine(EventEmitter):
     def assign_encoders(self, channel: bool, params: Sequence[MotuParameter | None], layer: int | None = None):
         encs = self.controller.channel_encoders
         if not channel:
-            encs = self.controller.side_encoders[0] + self.controller.side_encoders[1]
+            encs = self.controller.side_encoders[0] + \
+                self.controller.side_encoders[1]
 
         if layer is not None:
             encs = encs[layer * 8:layer * 8 + 8]

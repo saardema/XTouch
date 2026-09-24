@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable
 from enum import Enum
 
-from ctrl_mix import remap
+from ctrl_mix.utils import remap
 from ctrl_mix.core.events import Event
 
 
@@ -93,7 +93,8 @@ class ChannelType(Enum):
 
 
 class Mixer(ABC):
-    ParameterSetFromMixer = Event[Callable[[Parameter], None]]("ParameterSetFromMixer")
+    ParameterSetFromMixer = Event[Callable[[Parameter], None]](
+        "ParameterSetFromMixer")
 
     def __init__(self):
         self.channels: dict[int, InputChannel] = {}

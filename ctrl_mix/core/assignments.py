@@ -5,7 +5,7 @@ from ctrl_mix.core.controller import Control
 from ctrl_mix.core.mixer import AuxSendCapable, ChannelConfig, \
     Mixer, MixerChannel, Parameter, SendChannelConfig
 
-MAP_FILE_NAME = "../map.toml"
+MAP_FILE_NAME = "map.toml"
 
 
 class AssignmentManager:
